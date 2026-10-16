@@ -6,7 +6,8 @@ which order, how to check each step, and what to report**.
 
 ## 0. Goal and deliverables
 
-Train four models (see the model tree in `README.md`):
+Train four models. The model tree in `README.md` (`assets/model_tree.png`) labels every node with its step ID
+S0–S6 and the scripts it runs, and every model with ①–④; use the same IDs when you report:
 
 | # | Model | Produced by | Where it ends up |
 |---|---|---|---|
@@ -37,7 +38,7 @@ in parallel on different GPUs.
 - **On failure:** read the log, fix the root cause, re-run the step. All steps are resumable/idempotent. Record
   every non-trivial fix in your report.
 
-## 2. Environment check (once)
+## 2. S0 · Environment setup (once)
 
 ```bash
 nvidia-smi                      # GPU model / memory / driver; CUDA 12.8-capable driver needed
@@ -64,7 +65,7 @@ huggingface-cli download Wan-AI/Wan2.2-TI2V-5B-Diffusers --local-dir "$WAN22_5B_
 If `conda run` is unavailable in batch jobs, set `PY`, `PY_LL`, `PY_FV` in `env.sh` to the absolute python paths of
 the three envs.
 
-## 3. Data (once; mostly network-bound)
+## 3. S1 · Download data (once; mostly network-bound)
 
 ```bash
 python scripts/data/download_tartanrgbt.py --out $THERMAL_DATA/raw/TartanRGBT \
@@ -78,7 +79,7 @@ bash scripts/data/download_llvip.sh $THERMAL_DATA/raw/LLVIP
 - KAIST: `$THERMAL_DATA/raw/KAIST/kaist-cvpr15/images/set00..set11`. The md5 is checked by the script.
 - LLVIP: `$THERMAL_DATA/raw/LLVIP/LLVIP/{visible,infrared}/{train,test}`, with 12025 train images.
 
-## 4. Smoke test (MANDATORY before any real run)
+## 4. S2 · Smoke test (MANDATORY before any real run)
 
 ```bash
 bash scripts/smoke_test.sh       # 1 GPU, ~1.5 h, outputs in $THERMAL_RUNS/smoke
@@ -93,7 +94,7 @@ meaningless (20 training steps). Only the plumbing is being tested.
 - the per-step time and peak memory printed by stage 1 (`… s/step mem …G`);
 - any fixes you had to make.
 
-## 5. Encode latents (once; GPU, embarrassingly parallel)
+## 5. S3 · Encode latents (once; GPU, embarrassingly parallel)
 
 ```bash
 bash scripts/data/encode_all.sh all          # one process per local GPU; multi-node: NNODES / NODE_RANK
@@ -112,7 +113,7 @@ bash scripts/data/encode_all.sh all          # one process per local GPU; multi-
 
 Logs are in `latents/logs/`; grep them for `Error`.
 
-## 6. Stage 1: bidirectional teacher
+## 6. S4 · Stage 1: bidirectional teacher → models ① ②
 
 ```bash
 bash scripts/stage1/train.sh                  # single node, all GPUs
@@ -142,7 +143,7 @@ bash scripts/stage1/eval.sh step_XXXX.pt rgb2thermal
 bash scripts/stage1/eval.sh step_XXXX.pt thermal2rgb
 ```
 
-## 7. Stage 1b: 3-step student (from the chosen stage-1 checkpoint)
+## 7. S5 · Stage 1b: 3-step student → model ③ (from the chosen stage-1 checkpoint)
 
 ```bash
 python scripts/stage1b/merge_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_XXXX.pt \
@@ -159,7 +160,7 @@ bash scripts/stage1b/eval.sh <step>           # 3-step student vs. the stage-1 3
 - a healthy student is at least as good as the 30-step teacher on psnr_affine / ssim_affine;
 - if quality collapses (noise textures), stop and report.
 
-## 8. Stage 2: streaming AR multi-step RGB→thermal (from the chosen stage-1 checkpoint)
+## 8. S6 · Stage 2: streaming AR multi-step RGB→thermal → model ④ (from the chosen stage-1 checkpoint)
 
 ```bash
 python scripts/stage2/export_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_XXXX.pt \
@@ -190,7 +191,7 @@ bash scripts/stage2/eval_ar.sh $THERMAL_RUNS/stage2_ar/eval_sNNNN \
 | wandb errors | Never fatal; runs offline without `WANDB_API_KEY`. `wandb sync` later. |
 | `prompt(s) not in LLV2_PROMPT_EMBEDS cache` | Stage 2 must use the stage-1 run's `prompt_embeds.pt` (copied by `export_teacher.py`). |
 
-## 10. What to report back (after each stage)
+## 10. What to report back (after each step; always name the step ID S0–S6 and model ①–④)
 
 1. The commands you ran and any changes you made (diffs).
 2. GPU type/count, wall-clock time, s/step, peak memory.

@@ -9,7 +9,8 @@ check after every step and a list of what to report back.
 The model is conditioned in-context, by token concatenation: the clean condition video and the noisy target video
 form one token sequence and share 3D RoPE positions. There is no ControlNet and no VACE.
 
-Model tree. Solid green: included in this repository and smoke-tested end to end. Dashed orange: in progress on our
+Model tree. Every node shows its step ID (S0–S6, used as section titles here and in `AGENTS.md`) and the scripts it
+runs. Solid green: included in this repository and smoke-tested end to end. Dashed orange: in progress on our
 side, not part of this hand-off.
 
 ![model tree](assets/model_tree.png)
@@ -86,7 +87,7 @@ scripts/stage2/{train_ar,eval_ar}.sh
 scripts/smoke_test.sh                one-GPU end-to-end check (~1 h)
 ```
 
-## 2. Setup
+## 2. Setup (S0)
 
 Requirements: Linux, NVIDIA GPUs with ≥ 80 GB memory (H100/H200/H20 tested on Hopper-class), and a driver that
 supports CUDA 12.8. You also need conda and internet access, for pip, Hugging Face and Google Drive.
@@ -103,7 +104,7 @@ bash scripts/stage2/setup_longlive.sh   # LongLive @ pinned commit + patch, its 
 
 Every later step assumes `source scripts/env.sh` in the current shell.
 
-## 3. Data
+## 3. Data (S1 download, S3 encode)
 
 Three paired RGB/thermal sources. All are aligned pixel-to-pixel. Each is center-cropped to 5:4 and resized to
 640×512. Thermal is normalised per clip with percentiles, never per frame.
@@ -150,7 +151,7 @@ auto-contrast look into the radiometric output. At inference, use the radiometri
 output. In training, only the whole caption is dropped (10 %, for classifier-free guidance). Scene or event
 sentences can be appended later without changing the existing ones.
 
-## 4. Stage 1: bidirectional teacher
+## 4. Stage 1: bidirectional teacher (S4 → ① ②)
 
 ```bash
 bash scripts/stage1/train.sh                      # all local GPUs; multi-node: NNODES NODE_RANK MASTER_ADDR MASTER_PORT
@@ -169,7 +170,7 @@ Config: `configs/stage1/bidir_33f.yaml`
 into the base weights. `gated` gives each modality its own LoRA, applied only to the stream being generated (the
 UniVidX recipe). It cannot be merged.
 
-## 5. Stage 1b: 3-step bidirectional rgb → thermal (FastVideo DMD)
+## 5. Stage 1b: 3-step bidirectional rgb → thermal, FastVideo DMD (S5 → ③)
 
 ```bash
 python scripts/stage1b/merge_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_3000.pt \
@@ -192,7 +193,7 @@ bash scripts/stage1b/eval.sh 3000          # 3-step student (EMA), no CFG; compa
 - **Phase-1 reference** (17 frames, TartanRGBT): the EMA student at 1k–3k steps matched or beat the 30-step CFG
   teacher on PSNR/SSIM/LPIPS, at 1/19 of the latency.
 
-## 6. Stage 2: streaming RGB → thermal (autoregressive, teacher forcing)
+## 6. Stage 2: streaming RGB → thermal, autoregressive teacher forcing (S6 → ④)
 
 ```bash
 python scripts/stage2/export_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_3000.pt \
@@ -247,7 +248,7 @@ All three training stages log the same way:
 | 1b | rgb→thermal, 2 clips, the student's 3 steps | `THERMAL_EVAL_MINUTES`, `THERMAL_EVAL_N` |
 | 2 | streaming rgb→thermal, 2 clips, 30 steps | `thermal_eval_minutes`, `thermal_eval_n` in the config |
 
-## 8. Smoke test (do this first on a new cluster)
+## 8. Smoke test (S2: do this first on a new cluster)
 
 ```bash
 bash scripts/smoke_test.sh                 # 1 GPU, a few clips per source, ~1.5 h; outputs under $THERMAL_RUNS/smoke

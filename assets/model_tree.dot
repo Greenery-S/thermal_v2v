@@ -1,19 +1,20 @@
 digraph G {
-  rankdir=TB; nodesep=0.5; ranksep=0.55; bgcolor="white";
-  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, margin="0.18,0.10"];
+  rankdir=TB; nodesep=0.45; ranksep=0.5; bgcolor="white";
+  node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, margin="0.16,0.08"];
   edge [color="#555555", arrowsize=0.8];
-  D   [label="Paired RGB / thermal data\nTartanRGBT + KAIST + LLVIP", fillcolor="#e3f2fd", color="#1565c0"];
-  B   [label="Stage 1: bidirectional teacher, multi-step\n(one LoRA, 33 frames)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
-  T2R [label="① bidirectional multi-step\nthermal → RGB", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
-  R2T [label="② bidirectional multi-step\nRGB → thermal", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
-  FS  [label="③ bidirectional 3-step RGB → thermal\n(stage 1b, FastVideo DMD)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
-  AR  [label="④ streaming AR multi-step RGB → thermal\n(stage 2, LongLive teacher forcing)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
-  SF  [label="⑤ streaming AR 4-step RGB → thermal\nself-forcing DMD within one attention window\nin progress: prototype trained", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", penwidth=2];
-  LR  [label="⑥ streaming AR 4-step RGB → thermal, long video\nlong-rollout tuning: student rolls out far past the attention window,\nteacher scores only the last window\nin progress: training started", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", penwidth=2];
-  D -> B; B -> T2R; B -> R2T; R2T -> FS; R2T -> AR;
+  S0  [label="S0  setup (once)\nscripts/setup/create_envs.sh\nscripts/stage1b/setup_fastvideo.sh\nscripts/stage2/setup_longlive.sh", fillcolor="#eeeeee", color="#777777"];
+  D   [label="Paired RGB / thermal data: TartanRGBT + KAIST + LLVIP\nS1  download: scripts/data/download_{tartanrgbt.py, kaist.sh, llvip.sh}\nS2  smoke test (1 GPU): scripts/smoke_test.sh\nS3  encode latents: scripts/data/encode_all.sh", fillcolor="#e3f2fd", color="#1565c0"];
+  B   [label="S4  stage 1: bidirectional teacher, multi-step (one LoRA, 33 frames)\nscripts/stage1/train.sh   (config: configs/stage1/bidir_33f.yaml)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
+  T2R [label="① bidirectional multi-step  thermal → RGB\nS4 eval: scripts/stage1/eval.sh <ckpt> thermal2rgb", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
+  R2T [label="② bidirectional multi-step  RGB → thermal\nS4 eval: scripts/stage1/eval.sh <ckpt> rgb2thermal", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
+  FS  [label="③ bidirectional 3-step  RGB → thermal\nS5  stage 1b (FastVideo DMD):\nscripts/stage1b/merge_teacher.py → latents_to_parquet.py\n→ train_dmd.sh → eval.sh", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
+  AR  [label="④ streaming AR multi-step  RGB → thermal\nS6  stage 2 (LongLive teacher forcing):\nscripts/stage2/export_teacher.py → train_ar.sh → eval_ar.sh", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
+  SF  [label="⑤ streaming AR 4-step  RGB → thermal\nself-forcing DMD within one attention window\n(our side; LongLive configs/thermal/train_dmd_r2t_own.yaml)\nin progress: prototype trained", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", penwidth=2];
+  LR  [label="⑥ streaming AR 4-step  RGB → thermal, long video\nlong-rollout tuning: student rolls out far past the window,\nteacher scores only the last window\n(our side; LongLive configs/thermal/train_dmd_r2t_long.yaml)\nin progress: training started", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", penwidth=2];
+  S0 -> D [style=dotted]; D -> B; B -> T2R; B -> R2T; R2T -> FS; R2T -> AR;
   AR -> SF [style=dashed]; SF -> LR [style=dashed];
   subgraph cluster_legend { label=""; color="white";
     L1 [label="included in this repo (smoke-tested)", fillcolor="#d4f4dd", color="#2e7d32", fontsize=10];
-    L2 [label="in progress on our side", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", fontsize=10];
+    L2 [label="in progress on our side (not in this hand-off)", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", fontsize=10];
     L1 -> L2 [style=invis]; }
 }
