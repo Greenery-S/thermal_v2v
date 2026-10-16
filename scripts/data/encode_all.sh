@@ -1,6 +1,6 @@
 #!/bin/bash
 # Encode every latent set both stages need, one process per local GPU (resumable: existing clips are skipped).
-#   source scripts/env.sh && bash scripts/data/encode_all.sh [stage1|stage2|all]
+#   source scripts/env.sh && bash scripts/data/encode_all.sh [stage1|stage2|stage3|all]
 # Multi-node: run on each node with NNODES / NODE_RANK set; clips are sharded across all NNODES x NGPU processes.
 # Extra args after the stage go to every precompute_latents.py call (e.g. --limit 8 --limit_seqs 1 for a smoke test).
 set -euo pipefail
@@ -42,4 +42,11 @@ if [ "$WHAT" = stage2 ] || [ "$WHAT" = all ]; then           # 81 frames (stage-
   run tartanrgbt_81f train "${TARTAN[@]}" --num_frames 81 --stride 40
   run tartanrgbt_81f val   "${TARTAN[@]}" --num_frames 81 --stride 81
   run kaist_81f      train "${KAIST[@]}"  --num_frames 81 --stride 40
+fi
+if [ "$WHAT" = stage3 ] || [ "$WHAT" = all ]; then           # stage 3 (S7/S8 few-step streaming)
+  # S8 long-rollout tuning: 481-frame (~48 s) video clips. FFC windows are kept: DMD conditions on the RGB only.
+  run tartanrgbt_481f train "${TARTAN[@]}" --num_frames 481 --stride 480 --keep_bad
+  run kaist_481f      train "${KAIST[@]}"  --num_frames 481 --stride 480 --keep_bad
+  # long-stream eval: the 4-min TartanRGBT val sequence (day5, 2389 frames at 10 Hz) as ONE clip
+  run tartanrgbt_long val "${TARTAN[@]}" --num_frames 2389 --stride 100000 --keep_bad
 fi

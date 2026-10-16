@@ -9,9 +9,9 @@ check after every step and a list of what to report back.
 The model is conditioned in-context, by token concatenation: the clean condition video and the noisy target video
 form one token sequence and share 3D RoPE positions. There is no ControlNet and no VACE.
 
-Model tree. Every node shows its step ID (S0–S6, used as section titles here and in `AGENTS.md`) and the scripts it
-runs. Solid green: included in this repository and smoke-tested end to end. Dashed orange: in progress on our
-side, not part of this hand-off.
+Model tree. Every node shows its step ID (S0–S8, used as section titles here and in `AGENTS.md`) and the scripts it
+runs. All six models are included and smoke-tested end to end. ⑤ and ⑥ use a recipe validated so far only on a
+1-GPU prototype.
 
 ![model tree](assets/model_tree.png)
 
@@ -26,21 +26,15 @@ side, not part of this hand-off.
 "Smoke-tested" means the full chain ran on one GPU with a few clips per source. Full-scale runs and their quality
 are not verified yet.
 
-The few-step streaming model continues from ④ in two steps, both still in progress on our side and not part of this
-hand-off:
-- **⑤ Self-forcing DMD (rollouts within one attention window).**
-  - The student rolls out with its own history.
-  - A fresh LoRA is distilled from the bidirectional teacher.
-  - Prototype: single-direction plain-LoRA teacher, TartanRGBT only, 1×H200. At step 100 it reached the 30-step AR
-    quality at 4 steps on 8 val clips, then plateaued lower.
-- **⑥ Long-rollout tuning of the same LoRA.**
-  - The student rolls out far beyond the attention window (rolling KV cache + a 1-pair frame sink), and the teacher
-    scores only the last 21 pairs.
-  - This targets the slow wash-out seen over minute-long streams.
-  - Training has just started.
+The few-step streaming model continues from ④ in two steps:
+- **⑤ (S7) self-forcing DMD:** a fresh LoRA on ④; the student rolls out within one attention window; the teacher
+  is the stage-1 model.
+- **⑥ (S8) long-rollout tuning of that LoRA:** the student rolls out far past the window, and the teacher scores only
+  the last window. This removes the slow wash-out over minute-long streams.
 
-The code for both is in the LongLive patch (`configs/thermal/train_dmd_r2t_own.yaml`, `train_dmd_r2t_long.yaml`). The
-recipe is not fixed yet.
+Prototype (1×H200, TartanRGBT, single-direction teacher):
+- ⑤ matched ④ (30 steps) at 4 steps;
+- ⑥ raised the 4-min stream from pearson 0.72 (④, 30 steps) to 0.90 (4 steps), with short clips unchanged.
 
 Deliverables of this hand-off:
 
@@ -49,7 +43,9 @@ Deliverables of this hand-off:
 | ① | bidirectional, multi-step, **thermal→rgb** | 1 | `src/train_icl.py` (this repo) |
 | ② | bidirectional, multi-step, **rgb→thermal** (same LoRA as ①, other task sentence) | 1 | same |
 | ③ | bidirectional, **3-step** rgb→thermal | 1b | hao-ai-lab/FastVideo + `scripts/stage1b/fastvideo_thermal_icl.patch` |
-| ④ | streaming (autoregressive), multi-step rgb→thermal | 2 | NVlabs/LongLive 2.0 + `scripts/stage2/longlive_thermal_v2v.patch` |
+| ④ | streaming (autoregressive), multi-step rgb→thermal | 2 (S6) | NVlabs/LongLive 2.0 + `scripts/stage2/longlive_thermal_v2v.patch` |
+| ⑤ | streaming 4-step rgb→thermal (self-forcing DMD LoRA on ④) | 3 (S7) | same LongLive patch, `scripts/stage3/train_dmd.sh` |
+| ⑥ | streaming 4-step rgb→thermal for long video (⑤ + long-rollout tuning) | 3 (S8) | same, `scripts/stage3/train_long.sh` |
 
 - **Stage 1:** one LoRA for rgb→thermal, thermal→rgb and joint generation, on 33-frame clips.
 - **Stage 1b:** distils the stage-1 teacher (rgb→thermal) into a 3-step student. This is the phase-1 recipe that
@@ -57,8 +53,7 @@ Deliverables of this hand-off:
 - **Stage 2:** makes the teacher causal and autoregressive with teacher forcing. Frames are interleaved
   `[RGB_0, T_0, RGB_1, T_1, …]`, with 4 video frames per chunk.
 
-Few-step streaming (self-forcing DMD) and long-rollout tuning live in the same LongLive patch. They are still
-experimental and are not part of this hand-off.
+- **Stage 3:** distils ④ into 4 steps (⑤), then tunes it for long streams (⑥).
 
 ---
 
@@ -84,6 +79,7 @@ scripts/stage1b/{train_dmd,eval}.sh
 scripts/stage2/setup_longlive.sh     LongLive checkout + patch + conda env + Wan2.2 original-format files
 scripts/stage2/export_teacher.py     stage-1 checkpoint -> merged, LongLive-format teacher
 scripts/stage2/{train_ar,eval_ar}.sh
+scripts/stage3/{train_dmd,train_long,eval}.sh   S7 / S8 (LongLive DMD trainer)
 scripts/smoke_test.sh                one-GPU end-to-end check (~1 h)
 ```
 
@@ -220,6 +216,25 @@ Reference from the Hopper prototype (single-direction teacher, TartanRGBT only, 
 - streaming 30 steps: pearson 0.69, jump ratio 1.00;
 - bidirectional teacher: pearson 0.72.
 
+## 6b. Stage 3: 4-step streaming RGB → thermal (S7 → ⑤, S8 → ⑥)
+
+```bash
+bash scripts/data/encode_all.sh stage3          # 481f long clips + the 4-min val stream
+STAGE2_CKPT=$THERMAL_RUNS/stage2_ar/snapshots/step_XXXXXX.pt bash scripts/stage3/train_dmd.sh            # S7
+STAGE2_CKPT=... STAGE3_LORA=$THERMAL_RUNS/stage3_dmd/checkpoint_model_XXXXXX/model.pt \
+    bash scripts/stage3/train_long.sh                                                                  # S8
+STAGE2_CKPT=... bash scripts/stage3/eval.sh <S7|S8 checkpoint_model_*/model.pt> <out_dir> [long]
+```
+
+- ⑤ and ⑥ are LoRAs used on top of the S6 checkpoint they were trained on.
+- ⑥ must run with the 1-pair frame sink it was trained with (`eval.sh … long` / `configs/thermal/stage3_infer_long.yaml`).
+- Configs: `configs/thermal/stage3_{dmd,long}.yaml` in the LongLive checkout.
+- Recipe:
+  - LoRA r128 with EMA 0.99;
+  - real score = the exported stage-1 teacher, scored bidirectionally;
+  - 4 UniPC steps;
+  - S8 rollouts of 84–162 interleaved frames, with the teacher scoring the last 21 pairs.
+
 ## 7. Monitoring: wandb, local logs, in-training eval videos
 
 All three training stages log the same way:
@@ -247,6 +262,7 @@ All three training stages log the same way:
 | 1 | rgb→thermal + thermal→rgb, 2 clips each, 30 steps, CFG 2 | `training.eval_every_minutes` (config / CLI override) |
 | 1b | rgb→thermal, 2 clips, the student's 3 steps | `THERMAL_EVAL_MINUTES`, `THERMAL_EVAL_N` |
 | 2 | streaming rgb→thermal, 2 clips, 30 steps | `thermal_eval_minutes`, `thermal_eval_n` in the config |
+| 3 (S7/S8) | streaming rgb→thermal, 2 val clips + the 4-min val stream, 4 steps | same keys in `stage3_*.yaml` |
 
 ## 8. Smoke test (S2: do this first on a new cluster)
 
@@ -262,7 +278,8 @@ It runs the whole chain:
 4. stage 1b: merge the teacher, build the parquet, train 10 DMD steps, run the 3-step eval;
 5. export the teacher for stage 2;
 6. stage 2 for 10 iterations (no checkpoint: a full stage-2 checkpoint is ~50 GB);
-7. stage-2 streaming eval.
+7. stage-2 streaming eval;
+8. S7 and S8 for 2 iterations each, with their in-training evals.
 
 It only checks the plumbing, not the quality. It fails unless every training stage has written its in-training eval
 mp4 and its `eval_log.jsonl`.

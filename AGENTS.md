@@ -6,17 +6,24 @@ which order, how to check each step, and what to report**.
 
 ## 0. Goal and deliverables
 
-Train four models. The model tree in `README.md` (`assets/model_tree.png`) labels every node with its step ID
-S0–S6 and the scripts it runs, and every model with ①–④; use the same IDs when you report:
+Train six models. The model tree in `README.md` (`assets/model_tree.png`) labels every node with its step ID
+S0–S8 and the scripts it runs, and every model with ①–⑥; use the same IDs when you report:
 
 | # | Model | Produced by | Where it ends up |
 |---|---|---|---|
 | ① ② | bidirectional multi-step thermal→RGB and RGB→thermal (one LoRA) | stage 1 | `$THERMAL_RUNS/stage1_bidir_33f/ckpt/step_*.pt` |
 | ③ | bidirectional 3-step RGB→thermal | stage 1b | `$THERMAL_RUNS/stage1b_dmd3/checkpoint-*_weight_only/ema/generator_ema.safetensors` |
 | ④ | streaming autoregressive multi-step RGB→thermal | stage 2 | `$THERMAL_RUNS/stage2_ar/checkpoint_model_*/model.pt` (+ `snapshots/`) |
+| ⑤ | streaming 4-step RGB→thermal (self-forcing DMD LoRA on ④) | S7 | `$THERMAL_RUNS/stage3_dmd/checkpoint_model_*/model.pt` |
+| ⑥ | streaming 4-step RGB→thermal for long video (⑤ + long-rollout tuning) | S8 | `$THERMAL_RUNS/stage3_long/checkpoint_model_*/model.pt` |
 
-Dependencies: stage 1 → (stage 1b, stage 2). Stages 1b and 2 both start from a chosen stage-1 checkpoint and can run
-in parallel on different GPUs.
+Dependencies:
+- S4 → (S5, S6). S5 and S6 both start from a chosen S4 checkpoint and can run in parallel on different GPUs.
+- S6 → S7 → S8.
+- ⑤ ⑥ are LoRAs that are used on top of the ④ checkpoint they were trained on.
+
+⑤ ⑥ follow a recipe validated only on a 1-GPU prototype (TartanRGBT, a single-direction teacher), so check their evals
+closely.
 
 ## 1. Rules
 
@@ -188,6 +195,38 @@ bash scripts/stage2/eval_ar.sh $THERMAL_RUNS/stage2_ar/eval_sNNNN \
 - `pearson` should approach the bidirectional reference.
 - A stage-2 checkpoint is ~50 GB; `max_checkpoints: 1` keeps one plus 3 EMA snapshots. Watch disk space.
 
+## 8b. S7 · Self-forcing DMD → model ⑤ (from the chosen S6 checkpoint)
+
+```bash
+bash scripts/data/encode_all.sh stage3           # once: 481f long clips (S8) + the 4-min val stream (evals)
+STAGE2_CKPT=$THERMAL_RUNS/stage2_ar/snapshots/step_XXXXXX.pt bash scripts/stage3/train_dmd.sh
+STAGE2_CKPT=... bash scripts/stage3/eval.sh $THERMAL_RUNS/stage3_dmd/checkpoint_model_XXXXXX/model.pt $THERMAL_RUNS/stage3_dmd/eval_sXXXX
+```
+
+**Check** the hourly in-training evals in `stage3_dmd/eval/`: short val clips plus `rgb2thermal_long/stream.mp4`, the
+4-min val stream.
+- A good ⑤ matches ④ (30 steps) on the short clips at 4 steps. In the prototype that happened by step ~100, and the
+  run plateaued after.
+- Pick the step by the short-clip evals.
+- The long stream may slowly wash out (contrast collapsing for tens of seconds). That is what S8 fixes.
+
+## 8c. S8 · Long-rollout tuning → model ⑥ (from the chosen S7 checkpoint)
+
+```bash
+STAGE2_CKPT=<same as S7> STAGE3_LORA=$THERMAL_RUNS/stage3_dmd/checkpoint_model_XXXXXX/model.pt \
+    bash scripts/stage3/train_long.sh
+STAGE2_CKPT=... bash scripts/stage3/eval.sh $THERMAL_RUNS/stage3_long/checkpoint_model_XXXXXX/model.pt $THERMAL_RUNS/stage3_long/eval_sXXXX long
+```
+
+**Check** the 4-min stream in `stage3_long/eval/`:
+- the contrast should track the real thermal for the whole stream;
+- the short clips must not get worse than ⑤.
+
+Prototype reference, step 200: stream pearson 0.72 (④, 30 steps) → 0.90 (⑥, 4 steps); short clips unchanged.
+
+⑥ must be run with the 1-pair frame sink it was trained with (`eval.sh … long`, i.e.
+`configs/thermal/stage3_infer_long.yaml`).
+
 ## 9. Common failures
 
 | Symptom | Likely cause / fix |
@@ -200,7 +239,7 @@ bash scripts/stage2/eval_ar.sh $THERMAL_RUNS/stage2_ar/eval_sNNNN \
 | wandb errors | Never fatal; runs offline without `WANDB_API_KEY`. `wandb sync` later. |
 | `prompt(s) not in LLV2_PROMPT_EMBEDS cache` | Stage 2 must use the stage-1 run's `prompt_embeds.pt` (copied by `export_teacher.py`). |
 
-## 10. What to report back (after each step; always name the step ID S0–S6 and model ①–④)
+## 10. What to report back (after each step; always name the step ID S0–S8 and model ①–⑥)
 
 1. The commands you ran and any changes you made (diffs).
 2. GPU type/count, wall-clock time, s/step, peak memory.

@@ -65,6 +65,8 @@ def main():
     ap.add_argument("--every", type=int, default=5, help="llvip: keep every N-th image")
     ap.add_argument("--train_list", default="configs/data/tartanrgbt_train34.txt")
     ap.add_argument("--val_list", default="configs/data/tartanrgbt_debug_val.txt")
+    ap.add_argument("--keep_bad", action="store_true",
+                    help="keep windows that contain FFC/NUC shutter frames (long clips for DMD, which only uses the RGB)")
     ap.add_argument("--limit_seqs", type=int, default=0, help="smoke tests: only the first N sequences")
     ap.add_argument("--limit", type=int, default=0, help="smoke tests: only the first N clips")
     ap.add_argument("--shard", type=int, default=0)
@@ -74,7 +76,7 @@ def main():
     assert (a.num_frames - 1) % 4 == 0, "num_frames must be 4k+1 for the Wan VAE"
 
     src = make_source(a)
-    clips = build_clips(src, a.split, a.num_frames, a.stride, a.frame_step, limit_seqs=a.limit_seqs)
+    clips = build_clips(src, a.split, a.num_frames, a.stride, a.frame_step, skip_bad=not a.keep_bad, limit_seqs=a.limit_seqs)
     if a.limit:
         clips = clips[:a.limit]
     os.makedirs(a.out, exist_ok=True)

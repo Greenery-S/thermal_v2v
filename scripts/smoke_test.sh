@@ -3,15 +3,17 @@
 #   encode -> stage 1 (20 steps) -> stage-1 eval (both directions)
 #   -> stage 1b: merge teacher, parquet, FastVideo DMD (10 steps), 3-step eval
 #   -> stage 2: export teacher, LongLive AR (10 iterations, no checkpoint), streaming eval
+#   -> stage 3: S7 self-forcing DMD and S8 long-rollout tuning, 2 iterations each (start from the teacher / a fresh
+#      LoRA, since the smoke AR run saves no checkpoint), each with its in-training eval
 #   source scripts/env.sh && bash scripts/smoke_test.sh
-#   SMOKE_STEPS="1b" bash scripts/smoke_test.sh          # only some parts: any of  data 1 1b 2  (default: all)
+#   SMOKE_STEPS="1b" bash scripts/smoke_test.sh          # only some parts: any of  data 1 1b 2 3  (default: all)
 # Needs the raw datasets under $THERMAL_DATA/raw (at least one sequence of each source), and the stage-1b / stage-2
 # setups (scripts/stage1b/setup_fastvideo.sh, scripts/stage2/setup_longlive.sh).
 # Everything goes to $THERMAL_RUNS/smoke, so a real run's latents / checkpoints are never touched.
 set -euo pipefail
 : "${THERMAL_DATA:?source scripts/env.sh first}"
 export NGPU=1 NPROC=1
-STEPS=" ${SMOKE_STEPS:-data 1 1b 2} "
+STEPS=" ${SMOKE_STEPS:-data 1 1b 2 3} "
 want() { [[ "$STEPS" == *" $1 "* ]]; }
 SM=${SMOKE_DIR:-$THERMAL_RUNS/smoke}; mkdir -p "$SM/data"
 ln -sfn "$THERMAL_DATA/raw" "$SM/data/raw"       # raw data shared, latents / runs separate
@@ -59,6 +61,15 @@ if want 2; then
   need "$SM/stage2_ar/eval" "stage-2 in-training eval"
   step "stage-2 streaming eval of the exported teacher, run causally (2 clips, 4 steps)"
   bash "$REPO/scripts/stage2/eval_ar.sh" "$SM/stage2_ar/eval_smoke" --n 2 --steps 4
+fi
+
+if want 3; then
+  step "stage 3 / S7: self-forcing DMD, 2 iterations"
+  RUN=stage3_dmd CFG=configs/thermal/stage3_dmd_smoke.yaml bash "$REPO/scripts/stage3/_launch.sh"
+  need "$SM/stage3_dmd/eval" "S7 in-training eval"
+  step "stage 3 / S8: long-rollout tuning, 2 iterations (rollouts up to 162 frames)"
+  RUN=stage3_long CFG=configs/thermal/stage3_long_smoke.yaml bash "$REPO/scripts/stage3/_launch.sh"
+  need "$SM/stage3_long/eval" "S8 in-training eval"
 fi
 
 step "SMOKE TEST PASSED ($STEPS)"; echo "outputs: $SM"
