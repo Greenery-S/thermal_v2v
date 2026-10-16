@@ -1,0 +1,64 @@
+# Stage 1: bidirectional RGB <-> thermal ICL teacher on Wan2.2-TI2V-5B (one LoRA for rgb2thermal, thermal2rgb, joint).
+# 33-frame clips (9 latents; 3.3 s at 10 Hz). Sources and weights (a source is drawn with its weight's share,
+# independent of its size): TartanRGBT 0.6 (radiometric video), KAIST 0.25 (8-bit AGC video, 20 Hz -> 10 Hz),
+# LLVIP 0.15 (8-bit AGC stills -> static clips). Structured captions: datasets/captions.py.
+# Paths come from the environment (scripts/env.sh): WAN22_5B_DIR, THERMAL_DATA, THERMAL_RUNS.
+# Launch: scripts/stage1/train.sh (torchrun, 1..N nodes). batch_size is PER GPU.
+seed: 42
+model_dir: ${oc.env:WAN22_5B_DIR}
+output_dir: ${oc.env:THERMAL_RUNS}/stage1_bidir_33f
+
+prompts:                 # legacy fixed prompts (captions.mode: fixed); structured mode uses datasets/captions.py
+  rgb2thermal: transfer rgb to thermal
+  thermal2rgb: transfer thermal to rgb
+  joint: ''
+captions:
+  mode: structured
+directions:              # sampling weight per optimizer step
+  rgb2thermal: 0.45
+  thermal2rgb: 0.45
+  joint: 0.1
+
+model:
+  trainable: lora
+  attn_mode: full
+  shared_positions: true
+  max_text_len: 512
+  lora:
+    rank: 64
+    alpha: 64
+    dropout: 0.0
+    # all = one plain LoRA on every token (mergeable into the base weights -> required by stage 2, LongLive);
+    # gated = per-modality LoRA applied to the generated stream only (phase-1 bidirectional recipe, not mergeable)
+    gating: all
+    target_modules: [to_q, to_k, to_v, to_out.0, ffn.net.0.proj, ffn.net.2]
+
+data:
+  train_latent_dirs:
+    - {dir: "${oc.env:THERMAL_DATA}/latents/tartanrgbt_33f/train", weight: 0.6}
+    - {dir: "${oc.env:THERMAL_DATA}/latents/kaist_33f/train", weight: 0.25}
+    - {dir: "${oc.env:THERMAL_DATA}/latents/llvip_33f/train", weight: 0.15}
+  val_latent_dirs:
+    - "${oc.env:THERMAL_DATA}/latents/tartanrgbt_33f/val"
+  val_limit: 16
+  num_workers: 6
+
+training:
+  batch_size: 2          # per GPU: 2 x 32 GPUs = global 64 (phase 1 ran global 8 on one GPU)
+  accumulate: 1
+  lr: 1.0e-4
+  lr_min_ratio: 0.1
+  warmup_steps: 200
+  max_steps: 3000        # ~19k clips across sources -> ~10 epochs at global 64; pick the step by val
+  weight_decay: 0.01
+  grad_clip: 1.0
+  flow_shift: 5.0
+  timestep_sampling: uniform
+  cond_dropout: 0.1      # null RGB/thermal condition (CFG on the condition)
+  text_dropout: 0.1      # empty caption (CFG unconditional)
+  gradient_checkpointing: true
+  log_every: 10
+  val_every: 250
+  save_every: 250
+  keep_ckpts: 4
+  resume: true

@@ -1,0 +1,19 @@
+# stage 1 + data preprocessing (torch / torchvision are installed from the cu128 index by scripts/setup/create_envs.sh)
+diffusers==0.39.0
+transformers==4.57.6
+peft==0.21.2
+accelerate==1.15.0
+safetensors==0.8.0
+omegaconf==2.3.1
+huggingface_hub
+sentencepiece==0.2.2
+ftfy==6.3.1
+einops==0.8.2
+numpy==2.2.6
+pillow==12.3.0
+imageio==2.38.0
+imageio-ffmpeg
+scikit-image==0.25.2
+lpips==0.1.4
+bitsandbytes==0.50.2
+tqdm

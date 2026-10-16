@@ -1,0 +1,4087 @@
+From 3235129cfa4a3db153c4614701b7dc453538c520 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 15:51:35 +0800
+Subject: [PATCH 01/39] thermal-v2v: interleaved RGB/thermal conditioning,
+ cached prompts, latent dataset, farm deadline stop
+
+---
+ LongLive2.0/configs/thermal/smoke_ar_r2t.yaml | 88 +++++++++++++++++++
+ LongLive2.0/configs/thermal/train_ar_r2t.yaml | 88 +++++++++++++++++++
+ LongLive2.0/model/base.py                     |  4 +-
+ LongLive2.0/model/diffusion.py                | 32 ++++++-
+ LongLive2.0/trainer/diffusion.py              | 39 +++++++-
+ LongLive2.0/trainer/distillation.py           |  3 +-
+ LongLive2.0/utils/thermal_dataset.py          | 66 ++++++++++++++
+ LongLive2.0/utils/wan_5b_wrapper.py           | 39 +++++++-
+ LongLive2.0/wan_5b/modules/causal_model.py    | 30 +++++++
+ 9 files changed, 378 insertions(+), 11 deletions(-)
+ create mode 100644 LongLive2.0/configs/thermal/smoke_ar_r2t.yaml
+ create mode 100644 LongLive2.0/configs/thermal/train_ar_r2t.yaml
+ create mode 100644 LongLive2.0/utils/thermal_dataset.py
+
+diff --git a/LongLive2.0/configs/thermal/smoke_ar_r2t.yaml b/LongLive2.0/configs/thermal/smoke_ar_r2t.yaml
+new file mode 100644
+index 0000000..9fea1ab
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/smoke_ar_r2t.yaml
+@@ -0,0 +1,88 @@
++# thermal-v2v: causal AR teacher-forcing SFT of our RGB->thermal ICL teacher on LongLive 2.0.
++# Interleaved latent frames [RGB_0, T_0, RGB_1, T_1, ...]; one block = (RGB_i, T_i) = 4 video frames.
++# Init: wan_models/Wan2.2-TI2V-5B -> our converted teacher (scripts/longlive/convert_teacher_to_wan.py).
++# Run from LongLive2.0/ with LLV2_PROMPT_EMBEDS set (cached UMT5 embeddings; no T5 load).
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: -1
++  interleave_cond: true
++
++algorithm:
++  trainer: diffusion
++  i2v: false
++  causal: true
++  teacher_forcing: true
++  independent_first_frame: false
++  num_train_timestep: 1000
++  denoising_loss_type: flow
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.99
++  ema_start_step: 100
++  log_iters: 1000
++  max_checkpoints: 3
++  max_iters: 3
++  gc_interval: 100
++  error_recycling:
++    enabled: true
++    num_buckets: 50
++    buffer_size_per_bucket: 100
++    buffer_warmup_iter: 50
++    context_inject_prob: 0.9
++    latent_inject_prob: 0.9
++    noise_inject_prob: 0.01
++    clean_prob: 0.2
++    clean_buffer_update_prob: 0.1
++    modulate_factor: 0.3
++    start_step: 0
++    replacement_strategy: random
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  thermal_prompt: transfer rgb to thermal
++  # 81 video frames -> 21 latent frames per stream -> 42 interleaved frames at 32x40
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 50
++  sink_size: 0
++  guidance_scale: 1.0
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++  num_frames: 42
++  use_ema: true
++  val_batch_size: 1
++
++logging:
++  seed: 0
++  wandb_key: null
++  wandb_entity: null
++  wandb_project: thermal-v2v-ar
+diff --git a/LongLive2.0/configs/thermal/train_ar_r2t.yaml b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+new file mode 100644
+index 0000000..e0842cc
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+@@ -0,0 +1,88 @@
++# thermal-v2v: causal AR teacher-forcing SFT of our RGB->thermal ICL teacher on LongLive 2.0.
++# Interleaved latent frames [RGB_0, T_0, RGB_1, T_1, ...]; one block = (RGB_i, T_i) = 4 video frames.
++# Init: wan_models/Wan2.2-TI2V-5B -> our converted teacher (scripts/longlive/convert_teacher_to_wan.py).
++# Run from LongLive2.0/ with LLV2_PROMPT_EMBEDS set (cached UMT5 embeddings; no T5 load).
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: -1
++  interleave_cond: true
++
++algorithm:
++  trainer: diffusion
++  i2v: false
++  causal: true
++  teacher_forcing: true
++  independent_first_frame: false
++  num_train_timestep: 1000
++  denoising_loss_type: flow
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.99
++  ema_start_step: 100
++  log_iters: 500
++  max_checkpoints: 3
++  max_iters: 6000
++  gc_interval: 100
++  error_recycling:
++    enabled: true
++    num_buckets: 50
++    buffer_size_per_bucket: 100
++    buffer_warmup_iter: 50
++    context_inject_prob: 0.9
++    latent_inject_prob: 0.9
++    noise_inject_prob: 0.01
++    clean_prob: 0.2
++    clean_buffer_update_prob: 0.1
++    modulate_factor: 0.3
++    start_step: 0
++    replacement_strategy: random
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  thermal_prompt: transfer rgb to thermal
++  # 81 video frames -> 21 latent frames per stream -> 42 interleaved frames at 32x40
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 50
++  sink_size: 0
++  guidance_scale: 1.0
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++  num_frames: 42
++  use_ema: true
++  val_batch_size: 1
++
++logging:
++  seed: 0
++  wandb_key: null
++  wandb_entity: null
++  wandb_project: thermal-v2v-ar
+diff --git a/LongLive2.0/model/base.py b/LongLive2.0/model/base.py
+index 1ea3eb8..8e84f9b 100644
+--- a/LongLive2.0/model/base.py
++++ b/LongLive2.0/model/base.py
+@@ -10,7 +10,7 @@ import math
+ from pipeline import SelfForcingTrainingPipeline
+ from utils.config import section_get
+ from utils.loss import get_denoising_loss
+-from utils.wan_5b_wrapper import WanDiffusionWrapper, WanTextEncoder, WanVAEWrapper
++from utils.wan_5b_wrapper import WanDiffusionWrapper, WanTextEncoder, WanVAEWrapper, build_text_encoder
+ 
+ 
+ def build_default_denoising_step_list(sampling_steps, num_train_timesteps=1000, shift=1.0, include_zero=True):
+@@ -82,7 +82,7 @@ class BaseModel(nn.Module):
+         self.fake_score.model.requires_grad_(True)
+ 
+         # Text Encoder & VAE
+-        self.text_encoder = WanTextEncoder()
++        self.text_encoder = build_text_encoder()
+         self.text_encoder.requires_grad_(False)
+ 
+         self.vae = WanVAEWrapper()
+diff --git a/LongLive2.0/model/diffusion.py b/LongLive2.0/model/diffusion.py
+index c00b0a8..dae4088 100644
+--- a/LongLive2.0/model/diffusion.py
++++ b/LongLive2.0/model/diffusion.py
+@@ -8,7 +8,7 @@ import torch
+ from model.base import BaseModel
+ from pipeline import CausalDiffusionInferencePipeline
+ from utils.i2v_conditioning import _overwrite_i2v_context, _zero_i2v_context_timestep
+-from utils.wan_5b_wrapper import WanDiffusionWrapper, WanTextEncoder, WanVAEWrapper
++from utils.wan_5b_wrapper import WanDiffusionWrapper, WanTextEncoder, WanVAEWrapper, build_text_encoder
+ 
+ 
+ class CausalDiffusion(BaseModel):
+@@ -126,7 +126,7 @@ class CausalDiffusion(BaseModel):
+         self.generator = WanDiffusionWrapper(**getattr(args, "model_kwargs", {}), is_causal=True)
+         self.generator.model.requires_grad_(True)
+ 
+-        self.text_encoder = WanTextEncoder()
++        self.text_encoder = build_text_encoder()
+         self.text_encoder.requires_grad_(False)
+ 
+         self.vae = WanVAEWrapper()
+@@ -191,6 +191,16 @@ class CausalDiffusion(BaseModel):
+                 )
+             timestep[:, :context_frames] = 0
+ 
++        # thermal-v2v: interleaved [RGB_0, T_0, RGB_1, T_1, ...]; even frames are clean conditioning at t=0,
++        # never noised, never in the loss, never corrupted by error recycling.
++        cond_mask = None
++        if getattr(self.args, "interleave_cond", False):
++            if self.num_frame_per_block % 2 or num_frame % 2:
++                raise ValueError("interleave_cond needs even num_frame_per_block and num_frame")
++            cond_mask = torch.zeros(num_frame, dtype=torch.bool, device=timestep.device)
++            cond_mask[0::2] = True
++            timestep[:, cond_mask] = 0
++
+         # Step 2.5 & 3.5: Error recycling — clean_prob acts as a master switch.
+         # When clean_prob fires, skip ALL error injection and use pristine input;
+         # otherwise each injection type rolls its own probability and is gated
+@@ -254,6 +264,9 @@ class CausalDiffusion(BaseModel):
+                 dtype=noisy_latents.dtype,
+             )
+             training_target[:, :context_frames] = 0
++        if cond_mask is not None:
++            noisy_latents[:, cond_mask] = clean_latent[:, cond_mask].to(noisy_latents.dtype)
++            training_target[:, cond_mask] = 0
+ 
+         # Step 3: Noise augmentation, also add small noise to clean context latents
+         if self.noise_augmentation_max_timestep > 0:
+@@ -296,6 +309,13 @@ class CausalDiffusion(BaseModel):
+                     timestep_clean_aug, context_frames
+                 )
+ 
++        if cond_mask is not None:
++            clean_latent_aug = clean_latent_aug.clone()
++            clean_latent_aug[:, cond_mask] = clean_latent[:, cond_mask].to(clean_latent_aug.dtype)
++            if timestep_clean_aug is not None:
++                timestep_clean_aug = timestep_clean_aug.clone()
++                timestep_clean_aug[:, cond_mask] = 0
++
+         # Compute loss
+         flow_pred, x0_pred = self.generator(
+             noisy_image_or_video=noisy_latents,
+@@ -316,6 +336,11 @@ class CausalDiffusion(BaseModel):
+                     dtype=loss.dtype,
+                 )
+             loss_mask[:, :context_frames] = 0
++        if cond_mask is not None:
++            if loss_mask is None:
++                loss_mask = torch.ones((batch_size, num_frame), device=loss.device, dtype=loss.dtype)
++            loss_mask = loss_mask.clone()
++            loss_mask[:, cond_mask] = 0
+         if loss_mask is not None:
+             loss = loss * loss_mask
+             valid_count = loss_mask_global_valid_count if loss_mask_global_valid_count is not None else loss_mask.sum()
+@@ -349,6 +374,9 @@ class CausalDiffusion(BaseModel):
+                     batch_size, num_frame, 1, 1, 1
+                 ).to(flow_pred.dtype)
+                 noise_err = (flow_pred.detach() - training_target.detach()) * (1.0 - sigma)
++                if cond_mask is not None:
++                    latent_err[:, cond_mask] = 0
++                    noise_err[:, cond_mask] = 0
+ 
+                 use_distributed = (
+                     global_step is not None
+diff --git a/LongLive2.0/trainer/diffusion.py b/LongLive2.0/trainer/diffusion.py
+index 0654f82..c5a9d84 100644
+--- a/LongLive2.0/trainer/diffusion.py
++++ b/LongLive2.0/trainer/diffusion.py
+@@ -299,7 +299,8 @@ class Trainer:
+             wrap_strategy=config.generator_fsdp_wrap_strategy
+         )
+ 
+-        self.model.text_encoder = fsdp_wrap(
++        if not getattr(self.model.text_encoder, "is_cached", False):
++          self.model.text_encoder = fsdp_wrap(
+             self.model.text_encoder,
+             sharding_strategy=config.sharding_strategy,
+             mixed_precision=config.mixed_precision,
+@@ -346,7 +347,17 @@ class Trainer:
+         dataset_sample_warning_interval_seconds = getattr(
+             config, "dataset_sample_warning_interval_seconds", 60.0
+         )
+-        dataset = MultiVideoConcatDataset(
++        thermal_latent_dir = getattr(config, "thermal_latent_dir", None)
++        if thermal_latent_dir:
++            # thermal-v2v: precomputed interleaved RGB/thermal latents (utils/thermal_dataset.py)
++            from utils.thermal_dataset import InterleavedThermalLatents, thermal_collate
++            dataset = InterleavedThermalLatents(
++                thermal_latent_dir,
++                num_latent_frames=int(config.image_or_video_shape[1]) // 2,
++                prompt=getattr(config, "thermal_prompt", "transfer rgb to thermal"),
++            )
++        else:
++          dataset = MultiVideoConcatDataset(
+             data_dir=config.data_path,
+             video_size=(frame_raw_height, frame_raw_width),
+             total_frames=total_frames,
+@@ -390,7 +401,7 @@ class Trainer:
+             prefetch_factor=1,
+             pin_memory=False,
+             persistent_workers=False,
+-            collate_fn=multi_video_collate_fn,
++            collate_fn=thermal_collate if thermal_latent_dir else multi_video_collate_fn,
+         )
+ 
+         # Eval dataloader: batch size defaults to 1 to keep validation memory predictable.
+@@ -408,7 +419,10 @@ class Trainer:
+         num_blocks = 1 + (eval_total_frames - first_chunk_frames) // subsequent_chunk_frames
+         chunks_per_shot = getattr(config, "chunks_per_shot", 0)
+         scene_cut_prefix = getattr(config, "scene_cut_prefix", "The scene transitions. ")
+-        if getattr(config, "i2v", False):
++        if thermal_latent_dir:
++            eval_dataset = dataset  # thermal-v2v: in-loop eval is disabled (evaluation.interval: 0)
++            eval_collate = thermal_collate
++        elif getattr(config, "i2v", False):
+             eval_dataset = MultiVideoConcatDataset(
+                 data_dir=eval_data_path,
+                 video_size=(frame_raw_height, frame_raw_width),
+@@ -1097,6 +1111,23 @@ class Trainer:
+                     batch = self._sync_batch_for_sequence_parallel(batch, accumulation_step=acc)
+ 
+                 self.train_one_step(batch, accumulation_step=acc, accumulation_steps=acc_steps)
++            # thermal-v2v: fvf farm tickets pass FVF_TICKET_DEADLINE (epoch s) and FVF_CKPT_RESERVE (s); save and
++            # exit cleanly with the incomplete marker so the job is requeued and auto-resumes from logdir.
++            _deadline = float(os.environ.get("FVF_TICKET_DEADLINE", "0") or 0)
++            if _deadline > 0:
++                _reserve = float(os.environ.get("FVF_CKPT_RESERVE", "900") or 900)
++                _stop = torch.tensor([1.0 if time.time() > _deadline - _reserve else 0.0], device=self.device)
++                dist.all_reduce(_stop, op=dist.ReduceOp.MAX)
++                if _stop.item() > 0 and self.step < self.config.max_iters:
++                    if self.is_main_process:
++                        print(f"[fvf] ticket deadline near at step {self.step}; saving and requeueing", flush=True)
++                    if not self.config.no_save:
++                        self.save()
++                    barrier()
++                    marker = os.environ.get("FVF_INCOMPLETE_MARKER")
++                    if marker and self.is_main_process:
++                        open(marker, "w").write(f"step {self.step}\n")
++                    return
+             if (not self.config.no_save) and self.step % self.config.log_iters == 0:
+                 torch.cuda.empty_cache()
+                 self.save()
+diff --git a/LongLive2.0/trainer/distillation.py b/LongLive2.0/trainer/distillation.py
+index 0bf904a..a172fad 100644
+--- a/LongLive2.0/trainer/distillation.py
++++ b/LongLive2.0/trainer/distillation.py
+@@ -394,7 +394,8 @@ class Trainer:
+             wrap_strategy=config.fake_score_fsdp_wrap_strategy
+         )
+ 
+-        self.model.text_encoder = fsdp_wrap(
++        if not getattr(self.model.text_encoder, "is_cached", False):
++          self.model.text_encoder = fsdp_wrap(
+             self.model.text_encoder,
+             sharding_strategy=config.sharding_strategy,
+             mixed_precision=config.mixed_precision,
+diff --git a/LongLive2.0/utils/thermal_dataset.py b/LongLive2.0/utils/thermal_dataset.py
+new file mode 100644
+index 0000000..f7b14f0
+--- /dev/null
++++ b/LongLive2.0/utils/thermal_dataset.py
+@@ -0,0 +1,66 @@
++"""thermal-v2v: precomputed paired RGB / thermal latents, interleaved for LongLive AR teacher forcing.
++
++Each file under `latent_dir` is a safetensors written by thermal_v2v/src/precompute_latents.py with
++`cond` (RGB-in-thermal) and `target` (thermal16, clip-normalised) RAW Wan2.2 VAE latents of shape [48, f, h, w].
++They are normalised with the Wan2.2 VAE mean/std (the same convention as WanVAEWrapper.encode_to_latent and our
++ICL teacher) and interleaved along time as [RGB_0, T_0, RGB_1, T_1, ...] -> [2*f, 48, h, w].
++
++Batch layout matches the trainer's precomputed-latent path: {"prompts": [[prompt]], "ode_latent": [B, 1, 2f, C, H, W]}.
++"""
++import glob
++import os
++import random
++
++import torch
++from safetensors.torch import load_file
++from torch.utils.data import Dataset
++
++WAN22_MEAN = [-0.2289, -0.0052, -0.1323, -0.2339, -0.2799, 0.0174, 0.1838, 0.1557, -0.1382, 0.0542, 0.2813, 0.0891,
++              0.1570, -0.0098, 0.0375, -0.1825, -0.2246, -0.1207, -0.0698, 0.5109, 0.2665, -0.2108, -0.2158, 0.2502,
++              -0.2055, -0.0322, 0.1109, 0.1567, -0.0729, 0.0899, -0.2799, -0.1230, -0.0313, -0.1649, 0.0117, 0.0723,
++              -0.2839, -0.2083, -0.0520, 0.3748, 0.0152, 0.1957, 0.1433, -0.2944, 0.3573, -0.0548, -0.1681, -0.0667]
++WAN22_STD = [0.4765, 1.0364, 0.4514, 1.1677, 0.5313, 0.4990, 0.4818, 0.5013, 0.8158, 1.0344, 0.5894, 1.0901, 0.6885,
++             0.6165, 0.8454, 0.4978, 0.5759, 0.3523, 0.7135, 0.6804, 0.5833, 1.4146, 0.8986, 0.5659, 0.7069, 0.5338,
++             0.4889, 0.4917, 0.4069, 0.4999, 0.6866, 0.4093, 0.5709, 0.6065, 0.6415, 0.4944, 0.5726, 1.2042, 0.5458,
++             1.6887, 0.3971, 1.0600, 0.3943, 0.5537, 0.5444, 0.4089, 0.7468, 0.7744]
++
++
++class InterleavedThermalLatents(Dataset):
++    def __init__(self, latent_dir: str, num_latent_frames: int, prompt: str = "transfer rgb to thermal",
++                 random_crop_time: bool = True):
++        self.files = sorted(glob.glob(os.path.join(latent_dir, "**", "*.safetensors"), recursive=True))
++        if not self.files:
++            raise FileNotFoundError(f"no .safetensors latents under {latent_dir}")
++        self.f = int(num_latent_frames)
++        self.prompt = prompt
++        self.random_crop_time = random_crop_time
++        self.mean = torch.tensor(WAN22_MEAN).view(48, 1, 1, 1)
++        self.std = torch.tensor(WAN22_STD).view(48, 1, 1, 1)
++
++    def __len__(self):
++        return len(self.files)
++
++    def __getitem__(self, idx):
++        d = load_file(self.files[idx])
++        cond, tgt = d["cond"].float(), d["target"].float()  # [48, f, h, w]
++        if cond.shape != tgt.shape:
++            raise ValueError(f"{self.files[idx]}: cond {tuple(cond.shape)} != target {tuple(tgt.shape)}")
++        n = cond.shape[1]
++        if n < self.f:
++            raise ValueError(f"{self.files[idx]} has {n} latent frames < {self.f}")
++        # latent 0 of a Wan2.2 clip is the single-frame causal latent; only crop at 0 to keep that structure
++        s = 0
++        cond, tgt = cond[:, s:s + self.f], tgt[:, s:s + self.f]
++        cond = (cond - self.mean) / self.std
++        tgt = (tgt - self.mean) / self.std
++        x = torch.stack([cond, tgt], dim=2).flatten(1, 2)  # [48, 2f, h, w], frame order RGB_0, T_0, RGB_1, ...
++        x = x.permute(1, 0, 2, 3).contiguous()  # [2f, 48, h, w]
++        return {"prompts": [self.prompt], "ode_latent": x.unsqueeze(0), "file": os.path.basename(self.files[idx])}
++
++
++def thermal_collate(items):
++    return {
++        "prompts": [it["prompts"] for it in items],
++        "ode_latent": torch.stack([it["ode_latent"] for it in items]),
++        "file": [it["file"] for it in items],
++    }
+diff --git a/LongLive2.0/utils/wan_5b_wrapper.py b/LongLive2.0/utils/wan_5b_wrapper.py
+index 4884cb5..d9983c6 100644
+--- a/LongLive2.0/utils/wan_5b_wrapper.py
++++ b/LongLive2.0/utils/wan_5b_wrapper.py
+@@ -55,6 +55,35 @@ class WanTextEncoder(torch.nn.Module):
+         }
+ 
+ 
++class CachedTextEncoder(torch.nn.Module):
++    """thermal-v2v: serve precomputed UMT5 embeddings for a fixed prompt set instead of loading the 11 GB T5.
++
++    The cache is a dict {prompt: [512, 4096] tensor} with zeroed padding (same layout WanTextEncoder returns).
++    Enabled by LLV2_PROMPT_EMBEDS=<path to .pt>. Unknown prompts raise, so a typo cannot silently train on zeros.
++    """
++    is_cached = True
++
++    def __init__(self, path: str) -> None:
++        super().__init__()
++        self.table = {k: v.float() for k, v in torch.load(path, map_location="cpu").items()}
++
++    @property
++    def device(self):
++        return torch.cuda.current_device()
++
++    def forward(self, text_prompts: List[str]) -> dict:
++        missing = [p for p in text_prompts if p not in self.table]
++        if missing:
++            raise KeyError(f"prompt(s) not in LLV2_PROMPT_EMBEDS cache: {missing[:3]}; have {list(self.table)}")
++        ctx = torch.stack([self.table[p] for p in text_prompts]).to(self.device)
++        return {"prompt_embeds": ctx}
++
++
++def build_text_encoder():
++    path = os.environ.get("LLV2_PROMPT_EMBEDS")
++    return CachedTextEncoder(path) if path else WanTextEncoder()
++
++
+ class WanVAEWrapper(torch.nn.Module):
+     def __init__(self):
+         super().__init__()
+@@ -286,15 +315,21 @@ class WanDiffusionWrapper(torch.nn.Module):
+             t_scale=1.0,
+             rope_method="linear",
+             original_seq_len=None,
++            interleave_cond=False,
++            model_dir=None,
+     ):
+         super().__init__()
++        # thermal-v2v: model_dir overrides the relative wan_models/<model_name>/ path (our converted teacher).
++        _model_dir = model_dir or os.environ.get("LLV2_MODEL_DIR") or f"wan_models/{model_name}/"
+ 
+         if is_causal:
+             self.model = CausalWanModel.from_pretrained(
+-                f"wan_models/{model_name}/", local_attn_size=local_attn_size, sink_size=sink_size,
++                _model_dir, local_attn_size=local_attn_size, sink_size=sink_size,
+                 num_frame_per_block=num_frame_per_block)
+         else:
+-            self.model = WanModel.from_pretrained(f"wan_models/{model_name}/")
++            self.model = WanModel.from_pretrained(_model_dir)
++        if interleave_cond:
++            self.model.enable_interleave_cond()
+         self.model.eval()
+         self.model.t_scale = t_scale
+         self.model.rope_method = rope_method
+diff --git a/LongLive2.0/wan_5b/modules/causal_model.py b/LongLive2.0/wan_5b/modules/causal_model.py
+index 276ff4e..1960684 100644
+--- a/LongLive2.0/wan_5b/modules/causal_model.py
++++ b/LongLive2.0/wan_5b/modules/causal_model.py
+@@ -1099,9 +1099,33 @@ class CausalWanModel(ModelMixin, ConfigMixin):
+         self.rope_temporal_offset = 0.0
+         self.kv_quant_config = None
+ 
++        # thermal-v2v: interleaved [RGB_0, T_0, RGB_1, T_1, ...] latent frames. Even frames are the clean
++        # conditioning stream, odd frames the generated target. Zero-init modality embeddings (loaded from the
++        # ICL teacher) are added after patch embedding; RGB_i and T_i share temporal RoPE position i.
++        self.cond_mod_emb = nn.Parameter(torch.zeros(dim))
++        self.tgt_mod_emb = nn.Parameter(torch.zeros(dim))
++        self.interleave_cond = False
++
+     def _set_gradient_checkpointing(self, module, value=False):
+         self.gradient_checkpointing = value
+ 
++    def enable_interleave_cond(self, max_frames: int = 8192):
++        """thermal-v2v: frame k gets temporal position k // 2 (RGB_i and T_i share position i)."""
++        self.interleave_cond = True
++        k = torch.arange(max_frames, dtype=torch.float64)
++        self.rope_temporal_offset = torch.div(k, 2, rounding_mode="floor") - k
++
++    def _add_modality_emb(self, x, frame_seqlen: int, start_frame: int = 0):
++        """x: [B, F*frame_seqlen, C] frame-major tokens; even absolute frames = RGB cond, odd = thermal target."""
++        if not self.interleave_cond:
++            return x
++        n_frames = x.shape[1] // frame_seqlen
++        idx = torch.arange(start_frame, start_frame + n_frames, device=x.device)
++        is_cond = (idx % 2 == 0).to(x.dtype)[:, None]
++        emb = is_cond * self.cond_mod_emb.to(x.dtype)[None] + (1 - is_cond) * self.tgt_mod_emb.to(x.dtype)[None]
++        emb = emb.repeat_interleave(frame_seqlen, dim=0)
++        return x + emb[None, : x.shape[1]]
++
+     @staticmethod
+     def _prepare_blockwise_causal_attn_mask_i2v(
+         device: torch.device | str, num_frames: int = 31,
+@@ -1552,6 +1576,9 @@ class CausalWanModel(ModelMixin, ConfigMixin):
+         x = [u.flatten(2).transpose(1, 2) for u in x]
+         seq_lens = torch.tensor([u.size(1) for u in x], dtype=torch.long)
+         x = torch.cat(x)
++        if self.interleave_cond:
++            _fsl = int(first_shape[1] * first_shape[2])
++            x = self._add_modality_emb(x, _fsl, start_frame=int(current_start) // _fsl)
+ 
+         # time embeddings
+         if t.dim() == 1:
+@@ -1743,6 +1770,8 @@ class CausalWanModel(ModelMixin, ConfigMixin):
+             torch.cat([u, u.new_zeros(1, max_len - u.size(1), u.size(2))], dim=1)
+             for u in x
+         ])
++        _train_fsl = int(grid_sizes[0, 1] * grid_sizes[0, 2])
++        x = self._add_modality_emb(x, _train_fsl)
+ 
+         # time embeddings
+         if t.dim() == 1:
+@@ -1772,6 +1801,7 @@ class CausalWanModel(ModelMixin, ConfigMixin):
+             clean_x = torch.cat([
+                 torch.cat([u, u.new_zeros(1, seq_lens_clean[0] - u.size(1), u.size(2))], dim=1) for u in clean_x
+             ])
++            clean_x = self._add_modality_emb(clean_x, _train_fsl)
+ 
+             x = torch.cat([clean_x, x], dim=1)
+             if aug_t is None:
+-- 
+2.52.0
+
+
+From c42c6a420fac8a388866d3893708a0cbb0bfb6ce Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 15:54:44 +0800
+Subject: [PATCH 02/39] thermal-v2v: interleaved clamping in streaming
+ inference, thermal_eval.py, infer config
+
+---
+ LongLive2.0/configs/thermal/infer_ar_r2t.yaml |  35 ++++++
+ .../pipeline/causal_diffusion_inference.py    |  30 ++++-
+ LongLive2.0/thermal_eval.py                   | 115 ++++++++++++++++++
+ 3 files changed, 179 insertions(+), 1 deletion(-)
+ create mode 100644 LongLive2.0/configs/thermal/infer_ar_r2t.yaml
+ create mode 100644 LongLive2.0/thermal_eval.py
+
+diff --git a/LongLive2.0/configs/thermal/infer_ar_r2t.yaml b/LongLive2.0/configs/thermal/infer_ar_r2t.yaml
+new file mode 100644
+index 0000000..316bdd1
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/infer_ar_r2t.yaml
+@@ -0,0 +1,35 @@
++# thermal-v2v: streaming RGB->thermal inference (thermal_eval.py). 2 interleaved frames per chunk = 4 video frames.
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: 42
++  interleave_cond: true
++
++i2v: false
++use_ema: false
++thermal_prompt: transfer rgb to thermal
++
++data:
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++
++inference:
++  sampling_steps: 30
++  independent_first_frame: false
++  local_attn_size: 42
++  sink_size: 0
++  guidance_scale: 1.0
++  multi_shot_sink: false
++  multi_shot_rope_offset: 0
++  streaming_vae: false
++  async_vae: false
++  vae_type: wan
++  negative_prompt: ''
++
++logging:
++  seed: 0
+diff --git a/LongLive2.0/pipeline/causal_diffusion_inference.py b/LongLive2.0/pipeline/causal_diffusion_inference.py
+index 375fb6a..326ac9e 100644
+--- a/LongLive2.0/pipeline/causal_diffusion_inference.py
++++ b/LongLive2.0/pipeline/causal_diffusion_inference.py
+@@ -171,7 +171,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+         text_prompts: List[List[str]],
+         initial_latent: Optional[torch.Tensor] = None,
+         return_latents: bool = False,
+-        start_frame_index: Optional[int] = 0
++        start_frame_index: Optional[int] = 0,
++        cond_latents: Optional[torch.Tensor] = None,
+     ) -> torch.Tensor:
+         """
+         Perform inference on the given noise and text prompts.
+@@ -318,6 +319,15 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+             print(f"[inference] use_relative_rope enabled")
+ 
+         dit.rope_temporal_offset = 0.0
++        # thermal-v2v: interleaved [RGB_i, T_i] frames keep their shared-position RoPE offset; cond_latents
++        # [B, num_frames // 2, C, H, W] (normalised RGB latents) are clamped into the even frames of every chunk.
++        self._ll_cond = cond_latents
++        if getattr(dit, "interleave_cond", False):
++            dit.enable_interleave_cond()
++            if cond_latents is None:
++                raise ValueError("interleave_cond model needs cond_latents at inference")
++            if cond_latents.shape[1] * 2 != num_frames:
++                raise ValueError(f"cond_latents has {cond_latents.shape[1]} frames, noise has {num_frames}")
+         if self.multi_shot_rope_offset != 0.0:
+             print(f"[inference] multi_shot_rope_offset={self.multi_shot_rope_offset} "
+                   f"(multi-shot RoPE offset enabled)")
+@@ -561,6 +571,13 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+                 noise_start_frame:noise_start_frame + current_num_frames,
+             ]
+             latents = noisy_input
++            ll_cond = getattr(self, "_ll_cond", None)
++            ll_cond_chunk = None
++            if ll_cond is not None:
++                if cache_start_frame % 2 or current_num_frames % 2:
++                    raise ValueError("interleaved chunks must start on an RGB frame and hold whole pairs")
++                ll_cond_chunk = ll_cond[:, cache_start_frame // 2: (cache_start_frame + current_num_frames) // 2].to(
++                    device=latents.device, dtype=latents.dtype)
+ 
+             # Step 3.1: Spatial denoising loop
+             sample_scheduler = self._initialize_sample_scheduler(noise)
+@@ -575,6 +592,11 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+                     timestep = _zero_i2v_context_timestep(
+                         timestep, num_input_frames
+                     )
++                if ll_cond_chunk is not None:
++                    latents = latents.clone()
++                    latents[:, 0::2] = ll_cond_chunk
++                    timestep = timestep.clone()
++                    timestep[:, 0::2] = 0
+                 latent_model_input = latents
+ 
+                 flow_pred_cond, _ = self.generator(
+@@ -611,6 +633,9 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+                     latents = _overwrite_i2v_context(
+                         latents, initial_latent, num_input_frames
+                     )
++                if ll_cond_chunk is not None:
++                    latents = latents.clone()
++                    latents[:, 0::2] = ll_cond_chunk
+                 # iter-34: removed per-step debug print of kv_cache scalar
+                 # tensors (was forcing GPU→CPU sync every sampling step ×
+                 # 4 steps × 48 chunks = 192 stalls per prompt). Re-enable
+@@ -624,6 +649,9 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+                 latents = _overwrite_i2v_context(
+                     latents, initial_latent, num_input_frames
+                 )
++            if ll_cond_chunk is not None:
++                latents = latents.clone()
++                latents[:, 0::2] = ll_cond_chunk
+             output[:, cache_start_frame:cache_start_frame + current_num_frames] = latents
+ 
+             # Step 3.3: rerun with timestep zero to update KV cache using clean context
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+new file mode 100644
+index 0000000..82a318c
+--- /dev/null
++++ b/LongLive2.0/thermal_eval.py
+@@ -0,0 +1,115 @@
++"""thermal-v2v: streaming RGB->thermal evaluation of a LongLive causal checkpoint on precomputed val latents.
++
++Each val file (thermal_v2v/src/precompute_latents.py) holds RAW Wan2.2 latents `cond` (RGB) and `target` (thermal)
++[48, f, h, w]. The RGB stream is clamped into the even frames of every 2-frame chunk; the generated odd frames are
++the thermal output. Writes per-clip mp4 (RGB | ours | GT), metrics.json with affine-aligned PSNR/SSIM on the
++decoded thermal (vs the VAE-decoded GT latent).
++
++  LLV2_PROMPT_EMBEDS=<prompt_embeds.pt> python thermal_eval.py --config configs/thermal/infer_ar_r2t.yaml \
++      --latents <val dir> --out <dir> [--ckpt <logdir>/checkpoint_model_XXXXXX/model.pt --use_ema] [--n 8]
++Without --ckpt the converted bidirectional ICL teacher runs causally with no AR training (baseline).
++"""
++import argparse
++import glob
++import json
++import os
++import time
++
++import imageio
++import numpy as np
++import torch
++from omegaconf import OmegaConf
++from safetensors.torch import load_file
++
++from pipeline import CausalDiffusionInferencePipeline
++from utils.config import normalize_config
++from utils.nvfp4_checkpoint import clean_fsdp_state_dict_keys, unwrap_generator_state_dict
++from utils.thermal_dataset import WAN22_MEAN, WAN22_STD
++from utils.wan_5b_wrapper import build_text_encoder
++
++
++def affine_metrics(pred, gt):
++    """pred, gt: [F, H, W] in [-1, 1]; fit gt ~ a*pred + b over the clip, then PSNR / mean SSIM."""
++    from skimage.metrics import structural_similarity
++    p, g = pred.reshape(-1).astype(np.float64), gt.reshape(-1).astype(np.float64)
++    A = np.stack([p, np.ones_like(p)], 1)
++    a, b = np.linalg.lstsq(A, g, rcond=None)[0]
++    pa = np.clip(a * pred + b, -1, 1)
++    mse = np.mean((pa - gt) ** 2)
++    psnr = 10 * np.log10(4.0 / max(mse, 1e-10))
++    ssim = float(np.mean([structural_similarity(pa[i], gt[i], data_range=2.0) for i in range(len(gt))]))
++    return float(psnr), ssim
++
++
++def to_u8(x):  # [F, 3, H, W] in [-1, 1]
++    return ((x.clamp(-1, 1) + 1) * 127.5).round().byte().permute(0, 2, 3, 1).cpu().numpy()
++
++
++def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--config", required=True)
++    ap.add_argument("--latents", required=True)
++    ap.add_argument("--out", required=True)
++    ap.add_argument("--ckpt", default=None)
++    ap.add_argument("--use_ema", action="store_true")
++    ap.add_argument("--n", type=int, default=8)
++    ap.add_argument("--seed", type=int, default=0)
++    ap.add_argument("--fps", type=int, default=10)
++    a = ap.parse_args()
++    os.makedirs(a.out, exist_ok=True)
++    cfg = normalize_config(OmegaConf.load(a.config))
++    device = torch.device("cuda")
++    torch.set_grad_enabled(False)
++
++    pipe = CausalDiffusionInferencePipeline(cfg, device=device, text_encoder=build_text_encoder())
++    if a.ckpt:
++        sd = unwrap_generator_state_dict(torch.load(a.ckpt, map_location="cpu"), use_ema=a.use_ema)
++        sd = clean_fsdp_state_dict_keys(sd)
++        missing, unexpected = pipe.generator.load_state_dict(sd, strict=False)
++        print(f"loaded {a.ckpt} ema={a.use_ema} missing={len(missing)} unexpected={len(unexpected)}", flush=True)
++        if missing:
++            raise RuntimeError(f"missing keys: {missing[:8]}")
++    pipe = pipe.to(device=device, dtype=torch.bfloat16)
++    pipe.vae = pipe.vae.to(device=device, dtype=torch.bfloat16)
++
++    mean = torch.tensor(WAN22_MEAN).view(1, 48, 1, 1, 1)
++    std = torch.tensor(WAN22_STD).view(1, 48, 1, 1, 1)
++    f_lat = int(cfg.image_or_video_shape[1]) // 2
++    files = sorted(glob.glob(os.path.join(a.latents, "**", "*.safetensors"), recursive=True))[: a.n]
++    prompt = getattr(cfg, "thermal_prompt", "transfer rgb to thermal")
++    rows = []
++    for fi, path in enumerate(files):
++        d = load_file(path)
++        cond = ((d["cond"].float()[None, :, :f_lat] - mean) / std)  # [1, 48, f, h, w]
++        tgt = ((d["target"].float()[None, :, :f_lat] - mean) / std)
++        cond_bf = cond.permute(0, 2, 1, 3, 4).to(device, torch.bfloat16)  # [1, f, 48, h, w]
++        gen = torch.Generator(device="cpu").manual_seed(a.seed + fi)
++        noise = torch.randn((1, 2 * f_lat, 48, cond.shape[-2], cond.shape[-1]), generator=gen).to(device, torch.bfloat16)
++        num_blocks = (2 * f_lat) // pipe.num_frame_per_block
++        t0 = time.time()
++        lat = pipe.inference(noise=noise, text_prompts=[[prompt] * num_blocks], return_latents=True,
++                             cond_latents=cond_bf)
++        lat = lat[1] if isinstance(lat, tuple) else lat
++        torch.cuda.synchronize()
++        sec = time.time() - t0
++        thermal_lat = lat[:, 1::2].to(torch.bfloat16)  # [1, f, 48, h, w]
++        pred = pipe.vae.decode_to_pixel(thermal_lat)[0].float()  # [F, 3, H, W]
++        gt = pipe.vae.decode_to_pixel(tgt.permute(0, 2, 1, 3, 4).to(device, torch.bfloat16))[0].float()
++        rgb = pipe.vae.decode_to_pixel(cond_bf)[0].float()
++        pg, gg = pred.mean(1).cpu().numpy(), gt.mean(1).cpu().numpy()
++        psnr, ssim = affine_metrics(pg, gg)
++        name = os.path.splitext(os.path.basename(path))[0]
++        frames = np.concatenate([to_u8(rgb), to_u8(pred.mean(1, keepdim=True).repeat(1, 3, 1, 1)),
++                                 to_u8(gt.mean(1, keepdim=True).repeat(1, 3, 1, 1))], axis=2)
++        imageio.mimsave(os.path.join(a.out, f"{name}.mp4"), list(frames), fps=a.fps, quality=8, macro_block_size=1)
++        rows.append({"name": name, "psnr_affine": psnr, "ssim_affine": ssim, "sample_sec": sec,
++                     "video_frames": int(pred.shape[0])})
++        print(json.dumps(rows[-1]), flush=True)
++    summ = {k: float(np.mean([r[k] for r in rows])) for k in ("psnr_affine", "ssim_affine", "sample_sec")}
++    json.dump({"ckpt": a.ckpt, "use_ema": a.use_ema, "config": a.config, "summary": summ, "per_clip": rows},
++              open(os.path.join(a.out, "metrics.json"), "w"), indent=1)
++    print("SUMMARY", json.dumps(summ), flush=True)
++
++
++if __name__ == "__main__":
++    main()
+-- 
+2.52.0
+
+
+From 860e45bef8f82b082ac8ee9b2a31921392961a8e Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 16:12:17 +0800
+Subject: [PATCH 03/39] CachedTextEncoder: return bf16 embeddings
+
+---
+ LongLive2.0/utils/wan_5b_wrapper.py | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/LongLive2.0/utils/wan_5b_wrapper.py b/LongLive2.0/utils/wan_5b_wrapper.py
+index d9983c6..c8a0193 100644
+--- a/LongLive2.0/utils/wan_5b_wrapper.py
++++ b/LongLive2.0/utils/wan_5b_wrapper.py
+@@ -65,7 +65,9 @@ class CachedTextEncoder(torch.nn.Module):
+ 
+     def __init__(self, path: str) -> None:
+         super().__init__()
+-        self.table = {k: v.float() for k, v in torch.load(path, map_location="cpu").items()}
++        # keep bf16 (what our ICL teacher trained with, and what FSDP-mixed-precision T5 yields)
++        dt = getattr(torch, os.environ.get("LLV2_PROMPT_DTYPE", "bfloat16"))
++        self.table = {k: v.to(dt) for k, v in torch.load(path, map_location="cpu").items()}
+ 
+     @property
+     def device(self):
+-- 
+2.52.0
+
+
+From e22f0cef9f8d8e353d544beab0a21bb3e1a74098 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 16:15:51 +0800
+Subject: [PATCH 04/39] thermal_eval: --pairs override
+
+---
+ LongLive2.0/thermal_eval.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index 82a318c..39c3885 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -55,9 +55,12 @@ def main():
+     ap.add_argument("--n", type=int, default=8)
+     ap.add_argument("--seed", type=int, default=0)
+     ap.add_argument("--fps", type=int, default=10)
++    ap.add_argument("--pairs", type=int, default=0, help="override latent pairs (default: image_or_video_shape[1]//2)")
+     a = ap.parse_args()
+     os.makedirs(a.out, exist_ok=True)
+     cfg = normalize_config(OmegaConf.load(a.config))
++    if a.pairs:
++        cfg.image_or_video_shape[1] = 2 * a.pairs
+     device = torch.device("cuda")
+     torch.set_grad_enabled(False)
+ 
+-- 
+2.52.0
+
+
+From 532fed537f5014efd5d8a49ab84ce4287315fb5e Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 16:42:38 +0800
+Subject: [PATCH 05/39] inference: fp32 UniPC step for interleaved mode
+
+---
+ .../pipeline/causal_diffusion_inference.py     | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/LongLive2.0/pipeline/causal_diffusion_inference.py b/LongLive2.0/pipeline/causal_diffusion_inference.py
+index 326ac9e..ea983cf 100644
+--- a/LongLive2.0/pipeline/causal_diffusion_inference.py
++++ b/LongLive2.0/pipeline/causal_diffusion_inference.py
+@@ -623,11 +623,19 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+                 else:
+                     flow_pred = flow_pred_cond
+ 
+-                temp_x0 = sample_scheduler.step(
+-                    flow_pred,
+-                    t,
+-                    latents,
+-                    return_dict=False)[0]
++                if ll_cond_chunk is not None:
++                    # thermal-v2v: multistep UniPC state in fp32 (bf16 state diverges for our interleaved model)
++                    temp_x0 = sample_scheduler.step(
++                        flow_pred.float(),
++                        t,
++                        latents.float(),
++                        return_dict=False)[0].to(latents.dtype)
++                else:
++                    temp_x0 = sample_scheduler.step(
++                        flow_pred,
++                        t,
++                        latents,
++                        return_dict=False)[0]
+                 latents = temp_x0
+                 if first_i2v_block:
+                     latents = _overwrite_i2v_context(
+-- 
+2.52.0
+
+
+From 44e4f9fa675cf809a3de48b87b8d0af0670195d7 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 17:54:51 +0800
+Subject: [PATCH 06/39] thermal_eval: in-memory LoRA merge (LongLive-Plug) and
+ --steps
+
+---
+ LongLive2.0/thermal_eval.py | 34 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 34 insertions(+)
+
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index 39c3885..5784717 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -41,6 +41,33 @@ def affine_metrics(pred, gt):
+     return float(psnr), ssim
+ 
+ 
++def merge_lora(model, spec):
++    """W += weight * (alpha / rank) * B @ A for every LoRA pair (PEFT naming base_model.model.<module>.lora_[AB].weight)."""
++    import re
++    path, _, w = spec.partition(":")
++    weight = float(w) if w else 1.0
++    cfg_path = os.path.join(os.path.dirname(path), "adapter_config.json")
++    alpha = json.load(open(cfg_path)).get("lora_alpha") if os.path.exists(cfg_path) else None
++    sd = load_file(path)
++    pairs = {}
++    for k, v in sd.items():
++        m = re.fullmatch(r"(?:base_model\.model\.)?(.+)\.lora_([AB])(?:\.default)?\.weight", k)
++        if not m:
++            raise ValueError(f"unexpected adapter key {k}")
++        pairs.setdefault(m.group(1), {})[m.group(2)] = v
++    params = dict(model.named_parameters())
++    n = 0
++    for mod, ab in pairs.items():
++        A, B = ab["A"].float(), ab["B"].float()
++        r = A.shape[0]
++        scale = weight * ((alpha or r) / r)
++        p = params[mod + ".weight"]
++        with torch.no_grad():
++            p.add_((scale * (B @ A)).to(device=p.device, dtype=p.dtype))
++        n += 1
++    print(f"merged {n} LoRA modules from {path} weight={weight} alpha={alpha}", flush=True)
++
++
+ def to_u8(x):  # [F, 3, H, W] in [-1, 1]
+     return ((x.clamp(-1, 1) + 1) * 127.5).round().byte().permute(0, 2, 3, 1).cpu().numpy()
+ 
+@@ -56,11 +83,16 @@ def main():
+     ap.add_argument("--seed", type=int, default=0)
+     ap.add_argument("--fps", type=int, default=10)
+     ap.add_argument("--pairs", type=int, default=0, help="override latent pairs (default: image_or_video_shape[1]//2)")
++    ap.add_argument("--lora", action="append", default=[],
++                    help="PATH[:WEIGHT] of a PEFT adapter_model.safetensors to merge in memory (LongLive-Plug), repeatable")
++    ap.add_argument("--steps", type=int, default=0, help="override inference.sampling_steps")
+     a = ap.parse_args()
+     os.makedirs(a.out, exist_ok=True)
+     cfg = normalize_config(OmegaConf.load(a.config))
+     if a.pairs:
+         cfg.image_or_video_shape[1] = 2 * a.pairs
++    if a.steps:
++        cfg.sampling_steps = a.steps
+     device = torch.device("cuda")
+     torch.set_grad_enabled(False)
+ 
+@@ -72,6 +104,8 @@ def main():
+         print(f"loaded {a.ckpt} ema={a.use_ema} missing={len(missing)} unexpected={len(unexpected)}", flush=True)
+         if missing:
+             raise RuntimeError(f"missing keys: {missing[:8]}")
++    for spec in a.lora:
++        merge_lora(pipe.generator.model, spec)
+     pipe = pipe.to(device=device, dtype=torch.bfloat16)
+     pipe.vae = pipe.vae.to(device=device, dtype=torch.bfloat16)
+ 
+-- 
+2.52.0
+
+
+From 02f03156e4fb6573b17fd52ae94272a7d83a0414 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 18:12:07 +0800
+Subject: [PATCH 07/39] thermal-v2v: bf16 snapshots per save, atomic full
+ checkpoints, keep 1
+
+---
+ LongLive2.0/configs/thermal/train_ar_r2t.yaml |  2 +-
+ LongLive2.0/trainer/diffusion.py              | 12 +++++++++++-
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/LongLive2.0/configs/thermal/train_ar_r2t.yaml b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+index e0842cc..f5a872c 100644
+--- a/LongLive2.0/configs/thermal/train_ar_r2t.yaml
++++ b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+@@ -37,7 +37,7 @@ training:
+   ema_weight: 0.99
+   ema_start_step: 100
+   log_iters: 500
+-  max_checkpoints: 3
++  max_checkpoints: 1
+   max_iters: 6000
+   gc_interval: 100
+   error_recycling:
+diff --git a/LongLive2.0/trainer/diffusion.py b/LongLive2.0/trainer/diffusion.py
+index c5a9d84..4792f60 100644
+--- a/LongLive2.0/trainer/diffusion.py
++++ b/LongLive2.0/trainer/diffusion.py
+@@ -690,9 +690,19 @@ class Trainer:
+ 
+         checkpoint_dir = os.path.join(self.output_path, f"checkpoint_model_{self.step:06d}")
+         if self.is_main_process:
++            # thermal-v2v: a full checkpoint is ~80 GB (fp32 weights + EMA + Adam). Keep a small bf16 EMA (or raw)
++            # snapshot per save for evaluation; full checkpoints are pruned to `max_checkpoints` for resume only.
++            snap_dir = os.path.join(self.output_path, "snapshots")
++            os.makedirs(snap_dir, exist_ok=True)
++            snap_key = "generator_ema" if "generator_ema" in state_dict else "generator"
++            snap = {k: v.to(torch.bfloat16) if torch.is_floating_point(v) else v for k, v in state_dict[snap_key].items()}
++            torch.save({snap_key: snap, "step": self.step}, os.path.join(snap_dir, f"step_{self.step:06d}.pt"))
++            print("Snapshot saved to", os.path.join(snap_dir, f"step_{self.step:06d}.pt"))
++            del snap
+             os.makedirs(checkpoint_dir, exist_ok=True)
+             checkpoint_file = os.path.join(checkpoint_dir, "model.pt")
+-            torch.save(state_dict, checkpoint_file)
++            torch.save(state_dict, checkpoint_file + ".tmp")
++            os.replace(checkpoint_file + ".tmp", checkpoint_file)
+             print("Model saved to", checkpoint_file)
+ 
+         # Save error buffer — unified per-sp_rank pattern:
+-- 
+2.52.0
+
+
+From a8afc2aa776d80b94c21f1912a2522e6c0869bfd Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 20:43:58 +0800
+Subject: [PATCH 08/39] thermal-v2v: optional optimizer in checkpoints, free
+ old full ckpt first, snapshot pruning, v2 config (no error recycling)
+
+---
+ .../configs/thermal/train_ar_r2t_v2.yaml      | 91 +++++++++++++++++++
+ LongLive2.0/trainer/diffusion.py              | 14 +++
+ 2 files changed, 105 insertions(+)
+ create mode 100644 LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
+
+diff --git a/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml b/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
+new file mode 100644
+index 0000000..f7f27bf
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
+@@ -0,0 +1,91 @@
++# thermal-v2v v2: pure teacher forcing (error recycling OFF), no optimizer in checkpoints.
++# thermal-v2v: causal AR teacher-forcing SFT of our RGB->thermal ICL teacher on LongLive 2.0.
++# Interleaved latent frames [RGB_0, T_0, RGB_1, T_1, ...]; one block = (RGB_i, T_i) = 4 video frames.
++# Init: wan_models/Wan2.2-TI2V-5B -> our converted teacher (scripts/longlive/convert_teacher_to_wan.py).
++# Run from LongLive2.0/ with LLV2_PROMPT_EMBEDS set (cached UMT5 embeddings; no T5 load).
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: -1
++  interleave_cond: true
++
++algorithm:
++  trainer: diffusion
++  i2v: false
++  causal: true
++  teacher_forcing: true
++  independent_first_frame: false
++  num_train_timestep: 1000
++  denoising_loss_type: flow
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.99
++  ema_start_step: 100
++  log_iters: 500
++  max_checkpoints: 1
++  max_iters: 6000
++  gc_interval: 100
++  save_optimizer: false
++  max_snapshots: 3
++  error_recycling:
++    enabled: false
++    num_buckets: 50
++    buffer_size_per_bucket: 100
++    buffer_warmup_iter: 50
++    context_inject_prob: 0.9
++    latent_inject_prob: 0.9
++    noise_inject_prob: 0.01
++    clean_prob: 0.2
++    clean_buffer_update_prob: 0.1
++    modulate_factor: 0.3
++    start_step: 0
++    replacement_strategy: random
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  thermal_prompt: transfer rgb to thermal
++  # 81 video frames -> 21 latent frames per stream -> 42 interleaved frames at 32x40
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 50
++  sink_size: 0
++  guidance_scale: 1.0
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++  num_frames: 42
++  use_ema: true
++  val_batch_size: 1
++
++logging:
++  seed: 0
++  wandb_key: null
++  wandb_entity: null
++  wandb_project: thermal-v2v-ar
+diff --git a/LongLive2.0/trainer/diffusion.py b/LongLive2.0/trainer/diffusion.py
+index 4792f60..1dfad94 100644
+--- a/LongLive2.0/trainer/diffusion.py
++++ b/LongLive2.0/trainer/diffusion.py
+@@ -687,6 +687,9 @@ class Trainer:
+                 "generator_optimizer": generator_opim_state_dict,
+                 "step": self.step,
+             }
++        # thermal-v2v: optimizer state is 40 GB of an 80 GB checkpoint; optional (resume re-warms Adam)
++        if not getattr(self.config, "save_optimizer", True):
++            state_dict.pop("generator_optimizer", None)
+ 
+         checkpoint_dir = os.path.join(self.output_path, f"checkpoint_model_{self.step:06d}")
+         if self.is_main_process:
+@@ -699,6 +702,17 @@ class Trainer:
+             torch.save({snap_key: snap, "step": self.step}, os.path.join(snap_dir, f"step_{self.step:06d}.pt"))
+             print("Snapshot saved to", os.path.join(snap_dir, f"step_{self.step:06d}.pt"))
+             del snap
++            snaps = sorted(f for f in os.listdir(snap_dir) if f.startswith("step_") and f.endswith(".pt"))
++            for f in snaps[:-int(getattr(self.config, "max_snapshots", 3))]:
++                os.remove(os.path.join(snap_dir, f))
++            # free the previous full checkpoint BEFORE writing the new one (disk is the binding constraint);
++            # the snapshot just written is the fallback if this save fails.
++            import shutil
++            for item in os.listdir(self.output_path):
++                old_dir = os.path.join(self.output_path, item)
++                if item.startswith("checkpoint_model_") and old_dir != checkpoint_dir and os.path.isdir(old_dir):
++                    shutil.rmtree(old_dir, ignore_errors=True)
++                    print("Removed old full checkpoint", old_dir)
+             os.makedirs(checkpoint_dir, exist_ok=True)
+             checkpoint_file = os.path.join(checkpoint_dir, "model.pt")
+             torch.save(state_dict, checkpoint_file + ".tmp")
+-- 
+2.52.0
+
+
+From 8a7cc5be6a47cd35ec3d1f33bb86cad66a3dd42e Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 20:48:08 +0800
+Subject: [PATCH 09/39] thermal-v2v: fsync+atomic saves (NFS defers ENOSPC)
+
+---
+ LongLive2.0/trainer/diffusion.py | 24 ++++++++++++++++++++----
+ 1 file changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/LongLive2.0/trainer/diffusion.py b/LongLive2.0/trainer/diffusion.py
+index 1dfad94..7ca5f3d 100644
+--- a/LongLive2.0/trainer/diffusion.py
++++ b/LongLive2.0/trainer/diffusion.py
+@@ -53,6 +53,23 @@ def save_prompts_to_txt(prompts_for_sample, prompt_txt_path: str, is_main_proces
+             print(f"Warning: failed to save prompts to {prompt_txt_path}: {e}")
+ 
+ 
++def _safe_save(obj, path):
++    """thermal-v2v: write to .tmp, fsync (NFS defers ENOSPC to flush/close), then atomically rename."""
++    tmp = path + ".tmp"
++    try:
++        with open(tmp, "wb") as f:
++            torch.save(obj, f)
++            f.flush()
++            os.fsync(f.fileno())
++    except BaseException:
++        try:
++            os.remove(tmp)
++        except OSError:
++            pass
++        raise
++    os.replace(tmp, path)
++
++
+ class Trainer:
+     def __init__(self, config):
+         self.config = config
+@@ -699,7 +716,7 @@ class Trainer:
+             os.makedirs(snap_dir, exist_ok=True)
+             snap_key = "generator_ema" if "generator_ema" in state_dict else "generator"
+             snap = {k: v.to(torch.bfloat16) if torch.is_floating_point(v) else v for k, v in state_dict[snap_key].items()}
+-            torch.save({snap_key: snap, "step": self.step}, os.path.join(snap_dir, f"step_{self.step:06d}.pt"))
++            _safe_save({snap_key: snap, "step": self.step}, os.path.join(snap_dir, f"step_{self.step:06d}.pt"))
+             print("Snapshot saved to", os.path.join(snap_dir, f"step_{self.step:06d}.pt"))
+             del snap
+             snaps = sorted(f for f in os.listdir(snap_dir) if f.startswith("step_") and f.endswith(".pt"))
+@@ -715,8 +732,7 @@ class Trainer:
+                     print("Removed old full checkpoint", old_dir)
+             os.makedirs(checkpoint_dir, exist_ok=True)
+             checkpoint_file = os.path.join(checkpoint_dir, "model.pt")
+-            torch.save(state_dict, checkpoint_file + ".tmp")
+-            os.replace(checkpoint_file + ".tmp", checkpoint_file)
++            _safe_save(state_dict, checkpoint_file)
+             print("Model saved to", checkpoint_file)
+ 
+         # Save error buffer — unified per-sp_rank pattern:
+@@ -741,7 +757,7 @@ class Trainer:
+                         continue
+                     fname = f"{stem}_sp{_sp_rank}.pt" if sp_size_ > 1 else f"{stem}.pt"
+                     fpath = os.path.join(checkpoint_dir, fname)
+-                    torch.save(buffer.state_dict(), fpath)
++                    _safe_save(buffer.state_dict(), fpath)
+                     s = buffer.stats()
+                     rng = s.get('global_block_range', '')
+                     shard = s.get('shard', '')
+-- 
+2.52.0
+
+
+From d560e92ca7a0a16811e8deb2a757af1a64610916 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 22:04:21 +0800
+Subject: [PATCH 10/39] thermal_eval: spread clips across sequences; pearson vs
+ GT/RGB and constant-prediction floor
+
+---
+ LongLive2.0/thermal_eval.py | 23 ++++++++++++++++++++---
+ 1 file changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index 5784717..8e3e503 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -28,6 +28,17 @@ from utils.thermal_dataset import WAN22_MEAN, WAN22_STD
+ from utils.wan_5b_wrapper import build_text_encoder
+ 
+ 
++def pearson(pred, gt):
++    p, g = pred.reshape(-1).astype(np.float64), gt.reshape(-1).astype(np.float64)
++    p, g = p - p.mean(), g - g.mean()
++    return float((p * g).sum() / max(np.sqrt((p * p).sum() * (g * g).sum()), 1e-12))
++
++
++def const_psnr(gt):
++    """PSNR of predicting the clip mean everywhere: the floor any affine-aligned prediction reaches."""
++    return float(10 * np.log10(4.0 / max(np.var(gt), 1e-10)))
++
++
+ def affine_metrics(pred, gt):
+     """pred, gt: [F, H, W] in [-1, 1]; fit gt ~ a*pred + b over the clip, then PSNR / mean SSIM."""
+     from skimage.metrics import structural_similarity
+@@ -112,7 +123,9 @@ def main():
+     mean = torch.tensor(WAN22_MEAN).view(1, 48, 1, 1, 1)
+     std = torch.tensor(WAN22_STD).view(1, 48, 1, 1, 1)
+     f_lat = int(cfg.image_or_video_shape[1]) // 2
+-    files = sorted(glob.glob(os.path.join(a.latents, "**", "*.safetensors"), recursive=True))[: a.n]
++    allf = sorted(glob.glob(os.path.join(a.latents, "**", "*.safetensors"), recursive=True))
++    # spread clips over all sequences (sorted names group by sequence) instead of the first n of one sequence
++    files = [allf[int(i * len(allf) / a.n)] for i in range(min(a.n, len(allf)))]
+     prompt = getattr(cfg, "thermal_prompt", "transfer rgb to thermal")
+     rows = []
+     for fi, path in enumerate(files):
+@@ -139,10 +152,14 @@ def main():
+         frames = np.concatenate([to_u8(rgb), to_u8(pred.mean(1, keepdim=True).repeat(1, 3, 1, 1)),
+                                  to_u8(gt.mean(1, keepdim=True).repeat(1, 3, 1, 1))], axis=2)
+         imageio.mimsave(os.path.join(a.out, f"{name}.mp4"), list(frames), fps=a.fps, quality=8, macro_block_size=1)
+-        rows.append({"name": name, "psnr_affine": psnr, "ssim_affine": ssim, "sample_sec": sec,
++        rgb_luma = rgb.mean(1).cpu().numpy()
++        rows.append({"name": name, "psnr_affine": psnr, "ssim_affine": ssim, "pearson_gt": pearson(pg, gg),
++                     "pearson_rgb": pearson(pg, rgb_luma), "gt_vs_rgb": pearson(gg, rgb_luma),
++                     "psnr_const": const_psnr(gg), "sample_sec": sec,
+                      "video_frames": int(pred.shape[0])})
+         print(json.dumps(rows[-1]), flush=True)
+-    summ = {k: float(np.mean([r[k] for r in rows])) for k in ("psnr_affine", "ssim_affine", "sample_sec")}
++    summ = {k: float(np.mean([r[k] for r in rows])) for k in ("psnr_affine", "ssim_affine", "pearson_gt", "pearson_rgb",
++                                                              "gt_vs_rgb", "psnr_const", "sample_sec")}
+     json.dump({"ckpt": a.ckpt, "use_ema": a.use_ema, "config": a.config, "summary": summ, "per_clip": rows},
+               open(os.path.join(a.out, "metrics.json"), "w"), indent=1)
+     print("SUMMARY", json.dumps(summ), flush=True)
+-- 
+2.52.0
+
+
+From 5cecf700ed1c6121b96fd833988775dc9afc6a25 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 22:27:08 +0800
+Subject: [PATCH 11/39] thermal_eval: --steps also sets
+ inference.sampling_steps
+
+---
+ LongLive2.0/thermal_eval.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index 8e3e503..38d0dea 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -103,7 +103,10 @@ def main():
+     if a.pairs:
+         cfg.image_or_video_shape[1] = 2 * a.pairs
+     if a.steps:
++        # the pipeline reads inference.sampling_steps before the flat key
+         cfg.sampling_steps = a.steps
++        if "inference" in cfg and cfg.inference is not None:
++            cfg.inference.sampling_steps = a.steps
+     device = torch.device("cuda")
+     torch.set_grad_enabled(False)
+ 
+-- 
+2.52.0
+
+
+From d4857864bbc3cf3c4a3c3dc68fb7017395416667 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 22:56:39 +0800
+Subject: [PATCH 12/39] v1 config: no optimizer in checkpoints, keep 3
+ snapshots
+
+---
+ LongLive2.0/configs/thermal/train_ar_r2t.yaml | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/LongLive2.0/configs/thermal/train_ar_r2t.yaml b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+index f5a872c..7fa885b 100644
+--- a/LongLive2.0/configs/thermal/train_ar_r2t.yaml
++++ b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+@@ -40,6 +40,8 @@ training:
+   max_checkpoints: 1
+   max_iters: 6000
+   gc_interval: 100
++  save_optimizer: false
++  max_snapshots: 3
+   error_recycling:
+     enabled: true
+     num_buckets: 50
+-- 
+2.52.0
+
+
+From c44d4a46e172ec62e9fe80b4ba1d69e4139b50be Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 23:55:41 +0800
+Subject: [PATCH 13/39] thermal_eval: chunk-boundary jump ratio
+
+---
+ LongLive2.0/thermal_eval.py | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index 38d0dea..ce187fc 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -34,6 +34,15 @@ def pearson(pred, gt):
+     return float((p * g).sum() / max(np.sqrt((p * p).sum() * (g * g).sum()), 1e-12))
+ 
+ 
++def chunk_jump(v, chunk=4):
++    """Mean |frame diff| at chunk boundaries / within chunks. v: [F, H, W]. Wan2.2 latent k covers frames
++    4k-3..4k, so the boundary diffs are f[4k+1]-f[4k]. 1.0 = no chunk seams (real thermal ~1.04)."""
++    d = np.abs(np.diff(v, axis=0)).mean(axis=(1, 2))
++    idx = np.arange(len(d))
++    b, w = d[idx % chunk == 0], d[idx % chunk != 0]
++    return float(b.mean() / max(w.mean(), 1e-8))
++
++
+ def const_psnr(gt):
+     """PSNR of predicting the clip mean everywhere: the floor any affine-aligned prediction reaches."""
+     return float(10 * np.log10(4.0 / max(np.var(gt), 1e-10)))
+@@ -158,11 +167,12 @@ def main():
+         rgb_luma = rgb.mean(1).cpu().numpy()
+         rows.append({"name": name, "psnr_affine": psnr, "ssim_affine": ssim, "pearson_gt": pearson(pg, gg),
+                      "pearson_rgb": pearson(pg, rgb_luma), "gt_vs_rgb": pearson(gg, rgb_luma),
+-                     "psnr_const": const_psnr(gg), "sample_sec": sec,
++                     "psnr_const": const_psnr(gg), "jump_ratio": chunk_jump(pg), "jump_ratio_gt": chunk_jump(gg), "sample_sec": sec,
+                      "video_frames": int(pred.shape[0])})
+         print(json.dumps(rows[-1]), flush=True)
+     summ = {k: float(np.mean([r[k] for r in rows])) for k in ("psnr_affine", "ssim_affine", "pearson_gt", "pearson_rgb",
+-                                                              "gt_vs_rgb", "psnr_const", "sample_sec")}
++                                                              "gt_vs_rgb", "psnr_const", "jump_ratio", "jump_ratio_gt",
++                                                              "sample_sec")}
+     json.dump({"ckpt": a.ckpt, "use_ema": a.use_ema, "config": a.config, "summary": summ, "per_clip": rows},
+               open(os.path.join(a.out, "metrics.json"), "w"), indent=1)
+     print("SUMMARY", json.dumps(summ), flush=True)
+-- 
+2.52.0
+
+
+From acf86d759872f7a544d1682b370ece445bd5064e Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 15 Oct 2026 23:56:04 +0800
+Subject: [PATCH 14/39] retire v2 config
+
+---
+ LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml b/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
+index f7f27bf..968a519 100644
+--- a/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
++++ b/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
+@@ -1,3 +1,4 @@
++# RETIRED 2026-10-15: v1 (error recycling ON) is the main line; max_iters lowered so a resumed v2 exits immediately.
+ # thermal-v2v v2: pure teacher forcing (error recycling OFF), no optimizer in checkpoints.
+ # thermal-v2v: causal AR teacher-forcing SFT of our RGB->thermal ICL teacher on LongLive 2.0.
+ # Interleaved latent frames [RGB_0, T_0, RGB_1, T_1, ...]; one block = (RGB_i, T_i) = 4 video frames.
+@@ -39,7 +40,7 @@ training:
+   ema_start_step: 100
+   log_iters: 500
+   max_checkpoints: 1
+-  max_iters: 6000
++  max_iters: 800
+   gc_interval: 100
+   save_optimizer: false
+   max_snapshots: 3
+-- 
+2.52.0
+
+
+From 0fa68d89c427b216c4dd3123b1ebea243925b464 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 00:08:24 +0800
+Subject: [PATCH 15/39] bidirectional reference inference config
+
+---
+ .../configs/thermal/infer_bidir_r2t.yaml      | 35 +++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+ create mode 100644 LongLive2.0/configs/thermal/infer_bidir_r2t.yaml
+
+diff --git a/LongLive2.0/configs/thermal/infer_bidir_r2t.yaml b/LongLive2.0/configs/thermal/infer_bidir_r2t.yaml
+new file mode 100644
+index 0000000..61a0010
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/infer_bidir_r2t.yaml
+@@ -0,0 +1,35 @@
++# thermal-v2v: BIDIRECTIONAL reference — the whole 42-frame interleaved clip is one block (full attention), = phase-1 ICL teacher usage.
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: 42
++  interleave_cond: true
++
++i2v: false
++use_ema: false
++thermal_prompt: transfer rgb to thermal
++
++data:
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++
++inference:
++  sampling_steps: 30
++  independent_first_frame: false
++  local_attn_size: 42
++  sink_size: 0
++  guidance_scale: 1.0
++  multi_shot_sink: false
++  multi_shot_rope_offset: 0
++  streaming_vae: false
++  async_vae: false
++  vae_type: wan
++  negative_prompt: ''
++
++logging:
++  seed: 0
+-- 
+2.52.0
+
+
+From b3fa3cc8f8031712b44bf496e44cf61c73477cd2 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 00:09:09 +0800
+Subject: [PATCH 16/39] EMA every N steps (CPU shadow update was ~10 s/step)
+
+---
+ LongLive2.0/configs/thermal/train_ar_r2t.yaml | 1 +
+ LongLive2.0/trainer/diffusion.py              | 9 ++++++---
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/LongLive2.0/configs/thermal/train_ar_r2t.yaml b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+index 7fa885b..114d48d 100644
+--- a/LongLive2.0/configs/thermal/train_ar_r2t.yaml
++++ b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+@@ -36,6 +36,7 @@ training:
+   gradient_accumulation_steps: 1
+   ema_weight: 0.99
+   ema_start_step: 100
++  ema_every: 10
+   log_iters: 500
+   max_checkpoints: 1
+   max_iters: 6000
+diff --git a/LongLive2.0/trainer/diffusion.py b/LongLive2.0/trainer/diffusion.py
+index 7ca5f3d..a7011cf 100644
+--- a/LongLive2.0/trainer/diffusion.py
++++ b/LongLive2.0/trainer/diffusion.py
+@@ -497,7 +497,7 @@ class Trainer:
+         if (ema_weight is not None) and (ema_weight > 0.0) and (self.step >= config.ema_start_step):
+             if self.is_main_process:
+                 print(f"Setting up EMA with weight {ema_weight}")
+-            self.generator_ema = EMA_FSDP(self.model.generator, decay=ema_weight)
++            self.generator_ema = EMA_FSDP(self.model.generator, decay=ema_weight ** int(getattr(config, 'ema_every', 1)))
+ 
+         ##############################################################################################################
+         # 7. (If resuming) Load optimizer and EMA from checkpoint
+@@ -877,11 +877,14 @@ class Trainer:
+                 (self.generator_ema is None) and \
+                 (getattr(self.config, "ema_weight", None) is not None) and \
+                 (self.config.ema_weight > 0):
+-            self.generator_ema = EMA_FSDP(self.model.generator, decay=self.config.ema_weight)
++            self.generator_ema = EMA_FSDP(self.model.generator, decay=self.config.ema_weight ** int(getattr(self.config, 'ema_every', 1)))
+ 
+         # Update EMA after optimizer step
+         if self.generator_ema is not None and self.step >= self.config.ema_start_step:
+-            self.generator_ema.update(self.model.generator)
++            # thermal-v2v: the EMA shadow lives on CPU (20 GB copy per update); update every `ema_every` steps with
++            # decay**ema_every, which keeps the same averaging horizon.
++            if self.step % int(getattr(self.config, "ema_every", 1)) == 0:
++                self.generator_ema.update(self.model.generator)
+ 
+         wandb_loss_dict = {
+             "generator_loss": generator_loss.item(),
+-- 
+2.52.0
+
+
+From a9bde1c642ce341a54e878ddb71b75f0f780b608 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 04:05:32 +0800
+Subject: [PATCH 17/39] thermal-v2v: DMD/self-forcing with bidirectional
+ teacher (interleaved cond helpers, rollout clamp, null-RGB uncond,
+ EMA-snapshot init, Plug LoRA init, deadline stop)
+
+---
+ .../configs/thermal/smoke_dmd_r2t.yaml        | 109 ++++++++++++++++++
+ .../configs/thermal/train_dmd_r2t.yaml        | 109 ++++++++++++++++++
+ LongLive2.0/model/dmd.py                      |  17 ++-
+ LongLive2.0/pipeline/self_forcing_training.py |  31 +++++
+ LongLive2.0/trainer/distillation.py           |  70 ++++++++++-
+ LongLive2.0/utils/i2v_conditioning.py         |  30 +++++
+ 6 files changed, 362 insertions(+), 4 deletions(-)
+ create mode 100644 LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml
+ create mode 100644 LongLive2.0/configs/thermal/train_dmd_r2t.yaml
+
+diff --git a/LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml b/LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml
+new file mode 100644
+index 0000000..fbe3878
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml
+@@ -0,0 +1,109 @@
++# thermal-v2v: DMD / self-forcing few-step stage with a BIDIRECTIONAL teacher (CausVid / Self-Forcing recipe).
++# Student (generator): causal AR model from the teacher-forcing SFT (v1 EMA snapshot), 2 interleaved frames per block,
++#   LoRA r128 initialised from the LongLive-Plug Wan2.2-TI2V-5B few-step LoRA, 4 UniPC steps, self-forcing rollouts.
++# Real score + critic: the phase-1 bidirectional ICL teacher (wan_models/ default weights) run as ONE block over the
++#   whole interleaved clip (full attention). The real score has no chunk seams, so DMD pulls the student's rollouts
++#   toward seam-free videos. Unconditional branch = RGB zeroed (the ICL teacher's null condition); scale 1.0 = CFG 2.
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  real_score_fsdp_wrap_strategy: size
++  fake_score_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: -1
++  interleave_cond: true
++
++real_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++fake_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++checkpoints:
++  generator_ckpt: /hpctmp/yky/thermal_v2v/runs/ll_ar_r2t_v1/snapshots/step_001500.pt
++  generator_lora_init: /hpctmp/yky/thermal_v2v/models/longlive_plug/LongLive-Plug-Wan2.2-TI2V-5B-few-step/adapter_model.safetensors
++
++algorithm:
++  trainer: score_distillation
++  distribution_loss: dmd
++  i2v: false
++  all_causal: true
++  generator_is_causal: true
++  backward_simulation: true
++  teacher_forcing: false
++  independent_first_frame: false
++  ts_schedule: false
++  real_guidance_scale: 1.0
++  fake_guidance_scale: 0.0
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  lr_critic: 2.0e-06
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  beta1_critic: 0.0
++  beta2_critic: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.0
++  ema_start_step: 100000
++  log_iters: 100
++  max_checkpoints: 3
++  max_iters: 2
++  gc_interval: 100
++  dfake_gen_update_ratio: 5
++  min_num_training_frames: 42
++  num_training_frames: 42
++  slice_last_frames: 42
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  thermal_prompt: transfer rgb to thermal
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 4
++  sink_size: 0
++  local_attn_size: 42
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++
++adapter:
++  type: lora
++  rank: 128
++  alpha: 128
++  dropout: 0.0
++  apply_to_critic: true
++
++logging:
++  seed: 0
++  wandb_project: thermal-v2v-dmd
+diff --git a/LongLive2.0/configs/thermal/train_dmd_r2t.yaml b/LongLive2.0/configs/thermal/train_dmd_r2t.yaml
+new file mode 100644
+index 0000000..5855be7
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/train_dmd_r2t.yaml
+@@ -0,0 +1,109 @@
++# thermal-v2v: DMD / self-forcing few-step stage with a BIDIRECTIONAL teacher (CausVid / Self-Forcing recipe).
++# Student (generator): causal AR model from the teacher-forcing SFT (v1 EMA snapshot), 2 interleaved frames per block,
++#   LoRA r128 initialised from the LongLive-Plug Wan2.2-TI2V-5B few-step LoRA, 4 UniPC steps, self-forcing rollouts.
++# Real score + critic: the phase-1 bidirectional ICL teacher (wan_models/ default weights) run as ONE block over the
++#   whole interleaved clip (full attention). The real score has no chunk seams, so DMD pulls the student's rollouts
++#   toward seam-free videos. Unconditional branch = RGB zeroed (the ICL teacher's null condition); scale 1.0 = CFG 2.
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  real_score_fsdp_wrap_strategy: size
++  fake_score_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: -1
++  interleave_cond: true
++
++real_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++fake_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++checkpoints:
++  generator_ckpt: /hpctmp/yky/thermal_v2v/models/longlive/v1_ema_step2000.pt
++  generator_lora_init: /hpctmp/yky/thermal_v2v/models/longlive_plug/LongLive-Plug-Wan2.2-TI2V-5B-few-step/adapter_model.safetensors
++
++algorithm:
++  trainer: score_distillation
++  distribution_loss: dmd
++  i2v: false
++  all_causal: true
++  generator_is_causal: true
++  backward_simulation: true
++  teacher_forcing: false
++  independent_first_frame: false
++  ts_schedule: false
++  real_guidance_scale: 1.0
++  fake_guidance_scale: 0.0
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  lr_critic: 2.0e-06
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  beta1_critic: 0.0
++  beta2_critic: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.0
++  ema_start_step: 100000
++  log_iters: 100
++  max_checkpoints: 3
++  max_iters: 2000
++  gc_interval: 100
++  dfake_gen_update_ratio: 5
++  min_num_training_frames: 42
++  num_training_frames: 42
++  slice_last_frames: 42
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  thermal_prompt: transfer rgb to thermal
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 4
++  sink_size: 0
++  local_attn_size: 42
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++
++adapter:
++  type: lora
++  rank: 128
++  alpha: 128
++  dropout: 0.0
++  apply_to_critic: true
++
++logging:
++  seed: 0
++  wandb_project: thermal-v2v-dmd
+diff --git a/LongLive2.0/model/dmd.py b/LongLive2.0/model/dmd.py
+index 1e59d8b..aa05aed 100644
+--- a/LongLive2.0/model/dmd.py
++++ b/LongLive2.0/model/dmd.py
+@@ -16,6 +16,17 @@ from utils.i2v_conditioning import (
+ )
+ 
+ 
++def _null_rgb(x):
++    """thermal-v2v: unconditional branch = the ICL teacher's null condition (RGB latents zeroed)."""
++    from utils.i2v_conditioning import get_interleave_cond
++    c = get_interleave_cond()
++    if c is None or x.shape[1] != 2 * c.shape[1]:
++        return x
++    x = x.clone()
++    x[:, 0::2] = 0
++    return x
++
++
+ class DMD(SelfForcingModel):
+     def __init__(self, args, device):
+         """
+@@ -105,7 +116,7 @@ class DMD(SelfForcingModel):
+ 
+         if self.fake_guidance_scale != 0.0:
+             _, pred_fake_image_uncond = self.fake_score(
+-                noisy_image_or_video=noisy_image_or_video,
++                noisy_image_or_video=_null_rgb(noisy_image_or_video),
+                 conditional_dict=unconditional_dict,
+                 timestep=timestep,
+                 clean_x=clean_x
+@@ -125,7 +136,7 @@ class DMD(SelfForcingModel):
+         )
+ 
+         _, pred_real_image_uncond = self.real_score(
+-            noisy_image_or_video=noisy_image_or_video,
++            noisy_image_or_video=_null_rgb(noisy_image_or_video),
+             conditional_dict=unconditional_dict,
+             timestep=timestep,
+             clean_x=clean_x
+@@ -474,7 +485,7 @@ class DMD(SelfForcingModel):
+             timestep=critic_timestep.flatten(0, 1),
+             gradient_mask=(
+                 _i2v_loss_mask_like(generated_image, context_frames).flatten(0, 1)
+-                if context_frames > 0 else None
++                if _i2v_loss_mask_like(generated_image, context_frames) is not None else None
+             ),
+             flow_pred=flow_pred,
+         )
+diff --git a/LongLive2.0/pipeline/self_forcing_training.py b/LongLive2.0/pipeline/self_forcing_training.py
+index 411e8ab..6594167 100644
+--- a/LongLive2.0/pipeline/self_forcing_training.py
++++ b/LongLive2.0/pipeline/self_forcing_training.py
+@@ -511,6 +511,16 @@ class SelfForcingTrainingPipeline:
+         current_shot_index = 0
+         phi = self.multi_shot_rope_offset
+         self.generator.model.rope_temporal_offset = 0.0
++        # thermal-v2v: interleaved RGB/thermal frames keep their shared-position RoPE offset
++        from utils.i2v_conditioning import get_interleave_cond
++        ll_full = get_interleave_cond()
++        _dit = self.generator.model
++        for _ in range(4):
++            if hasattr(_dit, "enable_interleave_cond"):
++                break
++            _dit = getattr(_dit, "base_model", None) or getattr(_dit, "model", None)
++        if ll_full is not None:
++            _dit.enable_interleave_cond()
+ 
+         grad_enable_mask = torch.zeros((batch_size, sum(all_num_frames)), dtype=torch.bool)
+         for block_index, current_num_frames in enumerate(all_num_frames):
+@@ -540,6 +550,17 @@ class SelfForcingTrainingPipeline:
+                 :,
+                 noise_start_frame:noise_start_frame + current_num_frames,
+             ]
++            ll_chunk = None
++            if ll_full is not None:
++                ll_chunk = ll_full[:, current_start_frame // 2:(current_start_frame + current_num_frames) // 2].to(
++                    device=latents.device, dtype=latents.dtype)
++
++            def _ll_clamp(x):
++                if ll_chunk is None:
++                    return x
++                x = x.clone()
++                x[:, 0::2] = ll_chunk.to(x.dtype)
++                return x
+ 
+             # re-init scheduler per chunk (internal state is consumed during stepping)
+             sample_scheduler = FlowUniPCMultistepScheduler(
+@@ -563,6 +584,10 @@ class SelfForcingTrainingPipeline:
+                     timestep = _zero_i2v_context_timestep(
+                         timestep, num_input_frames
+                     )
++                if ll_chunk is not None:
++                    latents = _ll_clamp(latents)
++                    timestep = timestep.clone()
++                    timestep[:, 0::2] = 0
+                 if not exit_flag:
+                     with torch.no_grad():
+                         flow_pred, _ = self.generator(
+@@ -575,6 +600,7 @@ class SelfForcingTrainingPipeline:
+                         )
+                         latents = sample_scheduler.step(
+                             flow_pred, t, latents, return_dict=False)[0]
++                        latents = _ll_clamp(latents)
+                         if first_i2v_block:
+                             latents = _overwrite_i2v_context(
+                                 latents, initial_latent, num_input_frames
+@@ -607,6 +633,7 @@ class SelfForcingTrainingPipeline:
+                         )
+                     break
+ 
++            denoised_pred = _ll_clamp(denoised_pred)
+             # Step 3.2: record the model's output
+             output[:, current_start_frame:current_start_frame + current_num_frames] = denoised_pred
+ 
+@@ -633,6 +660,10 @@ class SelfForcingTrainingPipeline:
+                 denoised_pred = _overwrite_i2v_context(
+                     denoised_pred, initial_latent, num_input_frames
+                 )
++            if ll_chunk is not None:
++                denoised_pred = _ll_clamp(denoised_pred)
++                context_timestep = context_timestep.clone()
++                context_timestep[:, 0::2] = 0
+             with torch.no_grad():
+                 self.generator(
+                     noisy_image_or_video=denoised_pred,
+diff --git a/LongLive2.0/trainer/distillation.py b/LongLive2.0/trainer/distillation.py
+index a172fad..f38c093 100644
+--- a/LongLive2.0/trainer/distillation.py
++++ b/LongLive2.0/trainer/distillation.py
+@@ -218,6 +218,14 @@ class Trainer:
+                     self.model.generator.load_state_dict(generator_checkpoint["generator"], strict=True)
+                     if self.is_main_process:
+                         print("Generator weights loaded successfully")
++                elif isinstance(generator_checkpoint, dict) and "generator_ema" in generator_checkpoint:
++                    # thermal-v2v: AR-SFT snapshot (EMA weights only, bf16) as the DMD student init
++                    missing, unexpected = self.model.generator.load_state_dict(
++                        generator_checkpoint["generator_ema"], strict=False)
++                    if missing or unexpected:
++                        raise RuntimeError(f"EMA snapshot mismatch: missing={missing[:5]} unexpected={unexpected[:5]}")
++                    if self.is_main_process:
++                        print(f"Loaded generator from EMA snapshot {generator_checkpoint_path}")
+                 elif isinstance(generator_checkpoint, dict) and "model" in generator_checkpoint:
+                     if self.is_main_process:
+                         print(f"Loading pretrained generator from {generator_checkpoint_path}")
+@@ -277,6 +285,9 @@ class Trainer:
+             if self.is_main_process:
+                 print("Applying LoRA to models...")
+             self.model.generator.model = self._configure_lora_for_model(self.model.generator.model, "generator")
++            lora_init = getattr(config, "generator_lora_init", None)
++            if lora_init:
++                self._init_lora_from_adapter(self.model.generator.model, lora_init)
+ 
+             # Configure LoRA for fake_score if needed
+             if getattr(self.lora_config, 'apply_to_critic', True):
+@@ -483,7 +494,16 @@ class Trainer:
+             config, "dataset_sample_warning_interval_seconds", 60.0
+         )
+ 
+-        if self.use_backward_simulation and not self.config.i2v:
++        if getattr(config, "thermal_latent_dir", None):
++            # thermal-v2v: interleaved RGB/thermal latents; RGB pairs condition the self-forcing rollout
++            from utils.thermal_dataset import InterleavedThermalLatents, thermal_collate
++            dataset = InterleavedThermalLatents(
++                config.thermal_latent_dir,
++                num_latent_frames=int(config.image_or_video_shape[1]) // 2,
++                prompt=getattr(config, "thermal_prompt", "transfer rgb to thermal"),
++            )
++            collate_fn = thermal_collate
++        elif self.use_backward_simulation and not self.config.i2v:
+             dataset = MultiTextConcatDataset(
+                 data_path=config.data_path,
+                 num_blocks=num_blocks,
+@@ -1007,6 +1027,12 @@ class Trainer:
+         image_or_video_shape = list(self.config.image_or_video_shape)
+         image_or_video_shape[0] = batch_size
+ 
++        # thermal-v2v: register this batch's clean RGB latents (even frames of the interleaved clip)
++        if getattr(self.config, "interleave_cond", False):
++            from utils.i2v_conditioning import set_interleave_cond
++            _inter = batch["ode_latent"][:, -1].to(device=self.device, dtype=self.dtype)
++            set_interleave_cond(_inter[:, 0::2].contiguous())
++
+         # Step 1.5: Prepare clean_latent and initial_latent for off-policy mode
+         clean_latent = None
+         initial_latent = None
+@@ -1214,6 +1240,23 @@ class Trainer:
+                     self.save()
+                     torch.cuda.empty_cache()
+ 
++                # thermal-v2v: fvf farm ticket deadline -> save, write the incomplete marker, exit for requeue
++                _deadline = float(os.environ.get("FVF_TICKET_DEADLINE", "0") or 0)
++                if _deadline > 0:
++                    _reserve = float(os.environ.get("FVF_CKPT_RESERVE", "900") or 900)
++                    _stop = torch.tensor([1.0 if time.time() > _deadline - _reserve else 0.0], device=self.device)
++                    dist.all_reduce(_stop, op=dist.ReduceOp.MAX)
++                    if _stop.item() > 0 and self.step < self.config.max_iters:
++                        if self.is_main_process:
++                            print(f"[fvf] ticket deadline near at step {self.step}; saving and requeueing", flush=True)
++                        if not self.config.no_save:
++                            self.save()
++                        dist.barrier()
++                        marker = os.environ.get("FVF_INCOMPLETE_MARKER")
++                        if marker and self.is_main_process:
++                            open(marker, "w").write(f"step {self.step}\n")
++                        return
++
+                 # Logging
+                 if self.is_main_process:
+                     wandb_loss_dict = {}
+@@ -1268,6 +1311,31 @@ class Trainer:
+             import traceback
+             traceback.print_exc()
+ 
++    def _init_lora_from_adapter(self, peft_model, path):
++        """thermal-v2v: copy lora_A/lora_B from a PEFT adapter_model.safetensors (e.g. LongLive-Plug few-step) into
++        the freshly attached generator LoRA, matching by module suffix. Ranks must match."""
++        import re
++        from safetensors.torch import load_file
++        src = load_file(path)
++        params = dict(peft_model.named_parameters())
++        n = 0
++        for k, v in src.items():
++            m = re.fullmatch(r"(?:base_model\.model\.)?(.+)\.lora_([AB])(?:\.default)?\.weight", k)
++            if not m:
++                continue
++            suffix = f"{m.group(1)}.lora_{m.group(2)}.default.weight"
++            hits = [name for name in params if name.endswith(suffix)]
++            if len(hits) != 1:
++                raise KeyError(f"LoRA init: {suffix} matched {len(hits)} params")
++            p = params[hits[0]]
++            if tuple(p.shape) != tuple(v.shape):
++                raise ValueError(f"LoRA init shape {tuple(v.shape)} != {tuple(p.shape)} for {hits[0]}")
++            with torch.no_grad():
++                p.copy_(v.to(p.dtype))
++            n += 1
++        if self.is_main_process:
++            print(f"[lora_init] copied {n} LoRA tensors from {path}")
++
+     def _configure_lora_for_model(self, transformer, model_name):
+         """Configure LoRA for a WanDiffusionWrapper model"""
+         # Find all Linear modules in WanAttentionBlock modules
+diff --git a/LongLive2.0/utils/i2v_conditioning.py b/LongLive2.0/utils/i2v_conditioning.py
+index 2a12697..6889840 100644
+--- a/LongLive2.0/utils/i2v_conditioning.py
++++ b/LongLive2.0/utils/i2v_conditioning.py
+@@ -1,5 +1,23 @@
+ import torch
+ 
++# thermal-v2v: interleaved [RGB_0, T_0, RGB_1, T_1, ...] conditioning for DMD / self-forcing. When set, the helpers
++# below also clamp / zero-timestep / loss-mask every even (RGB) frame of FULL-length videos (2 * num_pairs frames).
++_LL_COND = {"cond": None}
++
++
++def set_interleave_cond(cond):
++    """cond: [B, num_pairs, C, H, W] clean normalised RGB latents for the current batch (or None)."""
++    _LL_COND["cond"] = cond
++
++
++def get_interleave_cond():
++    return _LL_COND["cond"]
++
++
++def _ll_full(x):
++    c = _LL_COND["cond"]
++    return c is not None and x.ndim >= 2 and x.shape[1] == 2 * c.shape[1]
++
+ 
+ def _get_i2v_context_frames(
+     image_or_video: torch.Tensor,
+@@ -39,6 +57,9 @@ def _overwrite_i2v_context(
+     initial_latent: torch.Tensor | None,
+     context_frames: int,
+ ) -> torch.Tensor:
++    if _ll_full(image_or_video):
++        image_or_video = image_or_video.clone()
++        image_or_video[:, 0::2] = _LL_COND["cond"].to(device=image_or_video.device, dtype=image_or_video.dtype)
+     if context_frames <= 0:
+         return image_or_video
+     output = image_or_video.clone()
+@@ -53,6 +74,9 @@ def _zero_i2v_context_timestep(
+     timestep: torch.Tensor,
+     context_frames: int,
+ ) -> torch.Tensor:
++    if _ll_full(timestep):
++        timestep = timestep.clone()
++        timestep[:, 0::2] = 0
+     if context_frames <= 0:
+         return timestep
+     output = timestep.clone()
+@@ -64,6 +88,12 @@ def _i2v_loss_mask_like(
+     image_or_video: torch.Tensor,
+     context_frames: int,
+ ) -> torch.Tensor | None:
++    if _ll_full(image_or_video):
++        mask = torch.ones_like(image_or_video, dtype=torch.bool)
++        mask[:, 0::2] = False
++        if context_frames > 0:
++            mask[:, :context_frames] = False
++        return mask
+     if context_frames <= 0:
+         return None
+     mask = torch.ones_like(image_or_video, dtype=torch.bool)
+-- 
+2.52.0
+
+
+From 95f33bb6c80bb5aa2537f6948062c2ed207154a8 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 05:26:12 +0800
+Subject: [PATCH 18/39] smoke DMD config: step-2000 init
+
+---
+ LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml b/LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml
+index fbe3878..1390a06 100644
+--- a/LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml
++++ b/LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml
+@@ -36,7 +36,7 @@ fake_model_kwargs:
+   interleave_cond: true
+ 
+ checkpoints:
+-  generator_ckpt: /hpctmp/yky/thermal_v2v/runs/ll_ar_r2t_v1/snapshots/step_001500.pt
++  generator_ckpt: /hpctmp/yky/thermal_v2v/models/longlive/v1_ema_step2000.pt
+   generator_lora_init: /hpctmp/yky/thermal_v2v/models/longlive_plug/LongLive-Plug-Wan2.2-TI2V-5B-few-step/adapter_model.safetensors
+ 
+ algorithm:
+-- 
+2.52.0
+
+
+From c65fa0fe977f0c92dc8c6ef74ade915838e39a61 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 06:33:45 +0800
+Subject: [PATCH 19/39] thermal_eval: --lora_ckpt for DMD generator LoRA
+
+---
+ LongLive2.0/thermal_eval.py | 18 +++++++++++++-----
+ 1 file changed, 13 insertions(+), 5 deletions(-)
+
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index ce187fc..7f0d001 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -61,14 +61,16 @@ def affine_metrics(pred, gt):
+     return float(psnr), ssim
+ 
+ 
+-def merge_lora(model, spec):
+-    """W += weight * (alpha / rank) * B @ A for every LoRA pair (PEFT naming base_model.model.<module>.lora_[AB].weight)."""
++def merge_lora(model, spec, sd=None, alpha=None):
++    """W += weight * (alpha / rank) * B @ A for every LoRA pair (PEFT naming base_model.model.<module>.lora_[AB].weight).
++    spec = PATH[:WEIGHT] of an adapter_model.safetensors, or a label when `sd` (a PEFT LoRA state dict) is given."""
+     import re
+     path, _, w = spec.partition(":")
+     weight = float(w) if w else 1.0
+-    cfg_path = os.path.join(os.path.dirname(path), "adapter_config.json")
+-    alpha = json.load(open(cfg_path)).get("lora_alpha") if os.path.exists(cfg_path) else None
+-    sd = load_file(path)
++    if sd is None:
++        cfg_path = os.path.join(os.path.dirname(path), "adapter_config.json")
++        alpha = json.load(open(cfg_path)).get("lora_alpha") if os.path.exists(cfg_path) else None
++        sd = load_file(path)
+     pairs = {}
+     for k, v in sd.items():
+         m = re.fullmatch(r"(?:base_model\.model\.)?(.+)\.lora_([AB])(?:\.default)?\.weight", k)
+@@ -106,6 +108,9 @@ def main():
+     ap.add_argument("--lora", action="append", default=[],
+                     help="PATH[:WEIGHT] of a PEFT adapter_model.safetensors to merge in memory (LongLive-Plug), repeatable")
+     ap.add_argument("--steps", type=int, default=0, help="override inference.sampling_steps")
++    ap.add_argument("--lora_ckpt", action="append", default=[],
++                    help="PATH[:WEIGHT] of a LongLive DMD checkpoint (dict with 'generator_lora'), merged in memory")
++    ap.add_argument("--lora_alpha", type=float, default=128.0, help="alpha of --lora_ckpt adapters (rank read from A)")
+     a = ap.parse_args()
+     os.makedirs(a.out, exist_ok=True)
+     cfg = normalize_config(OmegaConf.load(a.config))
+@@ -129,6 +134,9 @@ def main():
+             raise RuntimeError(f"missing keys: {missing[:8]}")
+     for spec in a.lora:
+         merge_lora(pipe.generator.model, spec)
++    for spec in a.lora_ckpt:
++        ck = torch.load(spec.partition(":")[0], map_location="cpu")
++        merge_lora(pipe.generator.model, spec, sd=ck["generator_lora"], alpha=a.lora_alpha)
+     pipe = pipe.to(device=device, dtype=torch.bfloat16)
+     pipe.vae = pipe.vae.to(device=device, dtype=torch.bfloat16)
+ 
+-- 
+2.52.0
+
+
+From 80ef1b7830ebdcf0705bdea3dcf58e5f7842a0a7 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 07:26:09 +0800
+Subject: [PATCH 20/39] DMD: start step count at 0 when initialised from an SFT
+ snapshot
+
+---
+ LongLive2.0/trainer/distillation.py | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/LongLive2.0/trainer/distillation.py b/LongLive2.0/trainer/distillation.py
+index f38c093..d11dfef 100644
+--- a/LongLive2.0/trainer/distillation.py
++++ b/LongLive2.0/trainer/distillation.py
+@@ -245,7 +245,11 @@ class Trainer:
+                     if self.is_main_process:
+                         print("Critic weights loaded successfully")
+                 # Load training step from checkpoint metadata.
+-                if isinstance(generator_checkpoint, dict) and "step" in generator_checkpoint:
++                if isinstance(generator_checkpoint, dict) and "generator_ema" in generator_checkpoint:
++                    # thermal-v2v: an AR-SFT snapshot is only the student's init; DMD counts its own steps from 0
++                    if self.is_main_process:
++                        print(f"init snapshot was SFT step {generator_checkpoint.get('step')}; DMD starts at step 0")
++                elif isinstance(generator_checkpoint, dict) and "step" in generator_checkpoint:
+                     self.step = generator_checkpoint["step"]
+                     if self.is_main_process:
+                         print(f"base_checkpoint step: {self.step}")
+-- 
+2.52.0
+
+
+From e585efd3e20f6a2b6b02cb3f8b63aa2ab9e880dc Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 09:49:45 +0800
+Subject: [PATCH 21/39] diagnostic: teacher-forced history at inference
+ (--tf_history)
+
+---
+ LongLive2.0/pipeline/causal_diffusion_inference.py | 9 +++++++++
+ LongLive2.0/thermal_eval.py                        | 6 +++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/LongLive2.0/pipeline/causal_diffusion_inference.py b/LongLive2.0/pipeline/causal_diffusion_inference.py
+index ea983cf..3d12907 100644
+--- a/LongLive2.0/pipeline/causal_diffusion_inference.py
++++ b/LongLive2.0/pipeline/causal_diffusion_inference.py
+@@ -173,6 +173,7 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+         return_latents: bool = False,
+         start_frame_index: Optional[int] = 0,
+         cond_latents: Optional[torch.Tensor] = None,
++        gt_target_latents: Optional[torch.Tensor] = None,
+     ) -> torch.Tensor:
+         """
+         Perform inference on the given noise and text prompts.
+@@ -322,6 +323,7 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+         # thermal-v2v: interleaved [RGB_i, T_i] frames keep their shared-position RoPE offset; cond_latents
+         # [B, num_frames // 2, C, H, W] (normalised RGB latents) are clamped into the even frames of every chunk.
+         self._ll_cond = cond_latents
++        self._ll_gt = gt_target_latents
+         if getattr(dit, "interleave_cond", False):
+             dit.enable_interleave_cond()
+             if cond_latents is None:
+@@ -661,6 +663,13 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+                 latents = latents.clone()
+                 latents[:, 0::2] = ll_cond_chunk
+             output[:, cache_start_frame:cache_start_frame + current_num_frames] = latents
++            # thermal-v2v diagnostic: teacher-forced history -> the KV cache gets the GROUND-TRUTH thermal of this
++            # chunk instead of the prediction (output keeps the prediction).
++            ll_gt = getattr(self, "_ll_gt", None)
++            if ll_gt is not None and ll_cond_chunk is not None:
++                latents = latents.clone()
++                latents[:, 1::2] = ll_gt[:, cache_start_frame // 2:(cache_start_frame + current_num_frames) // 2].to(
++                    device=latents.device, dtype=latents.dtype)
+ 
+             # Step 3.3: rerun with timestep zero to update KV cache using clean context
+             is_scene_cut = self._is_scene_cut(raw_prompts, chunk_index)
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index 7f0d001..afa51e2 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -111,6 +111,8 @@ def main():
+     ap.add_argument("--lora_ckpt", action="append", default=[],
+                     help="PATH[:WEIGHT] of a LongLive DMD checkpoint (dict with 'generator_lora'), merged in memory")
+     ap.add_argument("--lora_alpha", type=float, default=128.0, help="alpha of --lora_ckpt adapters (rank read from A)")
++    ap.add_argument("--tf_history", action="store_true",
++                    help="diagnostic: recache each chunk with the GROUND-TRUTH thermal (teacher-forced history)")
+     a = ap.parse_args()
+     os.makedirs(a.out, exist_ok=True)
+     cfg = normalize_config(OmegaConf.load(a.config))
+@@ -158,7 +160,9 @@ def main():
+         num_blocks = (2 * f_lat) // pipe.num_frame_per_block
+         t0 = time.time()
+         lat = pipe.inference(noise=noise, text_prompts=[[prompt] * num_blocks], return_latents=True,
+-                             cond_latents=cond_bf)
++                             cond_latents=cond_bf,
++                             gt_target_latents=(tgt.permute(0, 2, 1, 3, 4).to(device, torch.bfloat16)
++                                                if a.tf_history else None))
+         lat = lat[1] if isinstance(lat, tuple) else lat
+         torch.cuda.synchronize()
+         sec = time.time() - t0
+-- 
+2.52.0
+
+
+From c76e61b1775e7643b18dc36e33bc6dfa3d7c642c Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 10:47:03 +0800
+Subject: [PATCH 22/39] FIX: inference wiped interleaved shared-position RoPE
+ offset; DMD rollout fp32 UniPC; DMD uncond = null RGB + same prompt
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/model/dmd.py                           | 10 ++++++++--
+ LongLive2.0/pipeline/causal_diffusion_inference.py |  6 ++++++
+ LongLive2.0/pipeline/self_forcing_training.py      |  3 ++-
+ 3 files changed, 16 insertions(+), 3 deletions(-)
+
+diff --git a/LongLive2.0/model/dmd.py b/LongLive2.0/model/dmd.py
+index aa05aed..0971041 100644
+--- a/LongLive2.0/model/dmd.py
++++ b/LongLive2.0/model/dmd.py
+@@ -16,6 +16,12 @@ from utils.i2v_conditioning import (
+ )
+ 
+ 
++def _uncond_text(cond, uncond):
++    """thermal-v2v: the ICL teacher's CFG negative is 'null RGB, same prompt' (text and RGB dropped independently)."""
++    from utils.i2v_conditioning import get_interleave_cond
++    return cond if get_interleave_cond() is not None else uncond
++
++
+ def _null_rgb(x):
+     """thermal-v2v: unconditional branch = the ICL teacher's null condition (RGB latents zeroed)."""
+     from utils.i2v_conditioning import get_interleave_cond
+@@ -117,7 +123,7 @@ class DMD(SelfForcingModel):
+         if self.fake_guidance_scale != 0.0:
+             _, pred_fake_image_uncond = self.fake_score(
+                 noisy_image_or_video=_null_rgb(noisy_image_or_video),
+-                conditional_dict=unconditional_dict,
++                conditional_dict=_uncond_text(conditional_dict, unconditional_dict),
+                 timestep=timestep,
+                 clean_x=clean_x
+             )
+@@ -137,7 +143,7 @@ class DMD(SelfForcingModel):
+ 
+         _, pred_real_image_uncond = self.real_score(
+             noisy_image_or_video=_null_rgb(noisy_image_or_video),
+-            conditional_dict=unconditional_dict,
++            conditional_dict=_uncond_text(conditional_dict, unconditional_dict),
+             timestep=timestep,
+             clean_x=clean_x
+         )
+diff --git a/LongLive2.0/pipeline/causal_diffusion_inference.py b/LongLive2.0/pipeline/causal_diffusion_inference.py
+index 3d12907..5ff0f0b 100644
+--- a/LongLive2.0/pipeline/causal_diffusion_inference.py
++++ b/LongLive2.0/pipeline/causal_diffusion_inference.py
+@@ -452,6 +452,10 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+         current_shot_index = 0
+         phi = self.multi_shot_rope_offset
+         self._dit_model.rope_temporal_offset = 0.0
++        # thermal-v2v: the upstream reset above wiped the shared-position offset inference() had just enabled,
++        # putting RGB_i / T_i at RoPE positions 2i / 2i+1 instead of i / i (training layout). Re-enable it.
++        if getattr(self._dit_model, "interleave_cond", False):
++            self._dit_model.enable_interleave_cond()
+         streaming_decode = self.streaming_vae and not return_latents
+         pipeline_vae = streaming_decode and self.vae_device is not None
+         async_vae = streaming_decode and self.async_vae and not pipeline_vae
+@@ -576,6 +580,8 @@ class CausalDiffusionInferencePipeline(torch.nn.Module):
+             ll_cond = getattr(self, "_ll_cond", None)
+             ll_cond_chunk = None
+             if ll_cond is not None:
++                assert torch.is_tensor(self._dit_model.rope_temporal_offset), \
++                    "interleaved inference needs the shared-position RoPE offset"
+                 if cache_start_frame % 2 or current_num_frames % 2:
+                     raise ValueError("interleaved chunks must start on an RGB frame and hold whole pairs")
+                 ll_cond_chunk = ll_cond[:, cache_start_frame // 2: (cache_start_frame + current_num_frames) // 2].to(
+diff --git a/LongLive2.0/pipeline/self_forcing_training.py b/LongLive2.0/pipeline/self_forcing_training.py
+index 6594167..3296b20 100644
+--- a/LongLive2.0/pipeline/self_forcing_training.py
++++ b/LongLive2.0/pipeline/self_forcing_training.py
+@@ -598,8 +598,9 @@ class SelfForcingTrainingPipeline:
+                             crossattn_cache=self.crossattn_cache,
+                             current_start=current_start_frame * self.frame_seq_length
+                         )
++                        # thermal-v2v: multistep UniPC state in fp32 (same fix as inference)
+                         latents = sample_scheduler.step(
+-                            flow_pred, t, latents, return_dict=False)[0]
++                            flow_pred.float(), t, latents.float(), return_dict=False)[0].to(latents.dtype)
+                         latents = _ll_clamp(latents)
+                         if first_i2v_block:
+                             latents = _overwrite_i2v_context(
+-- 
+2.52.0
+
+
+From 59c4be57523cf28434c82999cbea6047b6a22309 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 11:19:38 +0800
+Subject: [PATCH 23/39] thermal_eval: --files whole-sequence latents,
+ FFC-masked metrics, per-window drift metrics, chunk latency
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/thermal_eval.py | 41 +++++++++++++++++++++++++++++++------
+ 1 file changed, 35 insertions(+), 6 deletions(-)
+
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index afa51e2..314aa5c 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -19,6 +19,7 @@ import imageio
+ import numpy as np
+ import torch
+ from omegaconf import OmegaConf
++from safetensors import safe_open
+ from safetensors.torch import load_file
+ 
+ from pipeline import CausalDiffusionInferencePipeline
+@@ -102,6 +103,9 @@ def main():
+     ap.add_argument("--ckpt", default=None)
+     ap.add_argument("--use_ema", action="store_true")
+     ap.add_argument("--n", type=int, default=8)
++    ap.add_argument("--files", nargs="+", default=None,
++                    help="explicit latent files (e.g. a whole sequence from encode_long_seq.py) instead of --latents/--n")
++    ap.add_argument("--window", type=int, default=80, help="per-window metrics every N video frames (long videos)")
+     ap.add_argument("--seed", type=int, default=0)
+     ap.add_argument("--fps", type=int, default=10)
+     ap.add_argument("--pairs", type=int, default=0, help="override latent pairs (default: image_or_video_shape[1]//2)")
+@@ -148,10 +152,18 @@ def main():
+     allf = sorted(glob.glob(os.path.join(a.latents, "**", "*.safetensors"), recursive=True))
+     # spread clips over all sequences (sorted names group by sequence) instead of the first n of one sequence
+     files = [allf[int(i * len(allf) / a.n)] for i in range(min(a.n, len(allf)))]
++    if a.files:
++        files = a.files
+     prompt = getattr(cfg, "thermal_prompt", "transfer rgb to thermal")
+     rows = []
+     for fi, path in enumerate(files):
+         d = load_file(path)
++        if a.files:  # whole-sequence latents: use every latent frame
++            f_lat = d["cond"].shape[1]
++            with safe_open(path, "pt") as fh:
++                ffc = json.loads((fh.metadata() or {}).get("meta", "{}")).get("ffc", [])
++        else:
++            ffc = []
+         cond = ((d["cond"].float()[None, :, :f_lat] - mean) / std)  # [1, 48, f, h, w]
+         tgt = ((d["target"].float()[None, :, :f_lat] - mean) / std)
+         cond_bf = cond.permute(0, 2, 1, 3, 4).to(device, torch.bfloat16)  # [1, f, 48, h, w]
+@@ -171,20 +183,37 @@ def main():
+         gt = pipe.vae.decode_to_pixel(tgt.permute(0, 2, 1, 3, 4).to(device, torch.bfloat16))[0].float()
+         rgb = pipe.vae.decode_to_pixel(cond_bf)[0].float()
+         pg, gg = pred.mean(1).cpu().numpy(), gt.mean(1).cpu().numpy()
+-        psnr, ssim = affine_metrics(pg, gg)
++        valid = np.ones(len(gg), bool)
++        valid[[i for i in ffc if i < len(valid)]] = False  # FFC/NUC frames: GT is a shutter frame, not the scene
++        psnr, ssim = affine_metrics(pg[valid], gg[valid])
+         name = os.path.splitext(os.path.basename(path))[0]
+         frames = np.concatenate([to_u8(rgb), to_u8(pred.mean(1, keepdim=True).repeat(1, 3, 1, 1)),
+                                  to_u8(gt.mean(1, keepdim=True).repeat(1, 3, 1, 1))], axis=2)
+         imageio.mimsave(os.path.join(a.out, f"{name}.mp4"), list(frames), fps=a.fps, quality=8, macro_block_size=1)
+         rgb_luma = rgb.mean(1).cpu().numpy()
+-        rows.append({"name": name, "psnr_affine": psnr, "ssim_affine": ssim, "pearson_gt": pearson(pg, gg),
+-                     "pearson_rgb": pearson(pg, rgb_luma), "gt_vs_rgb": pearson(gg, rgb_luma),
+-                     "psnr_const": const_psnr(gg), "jump_ratio": chunk_jump(pg), "jump_ratio_gt": chunk_jump(gg), "sample_sec": sec,
+-                     "video_frames": int(pred.shape[0])})
++        rows.append({"name": name, "psnr_affine": psnr, "ssim_affine": ssim, "pearson_gt": pearson(pg[valid], gg[valid]),
++                     "pearson_rgb": pearson(pg, rgb_luma), "gt_vs_rgb": pearson(gg[valid], rgb_luma[valid]),
++                     "psnr_const": const_psnr(gg[valid]), "jump_ratio": chunk_jump(pg), "jump_ratio_gt": chunk_jump(gg), "sample_sec": sec,
++                     "video_frames": int(pred.shape[0]), "chunks": num_blocks, "sec_per_chunk": sec / num_blocks,
++                     "gen_fps": float(pred.shape[0] / sec), "ffc_frames": int((~valid).sum())})
++        if a.files:  # drift over time: metrics per window, affine fit per window like the clip eval
++            win = []
++            for w0 in range(0, len(gg) - a.window // 2, a.window):
++                sl = slice(w0, w0 + a.window)
++                v = valid[sl]
++                if v.sum() < a.window // 2:
++                    continue
++                wp, wg = pg[sl][v], gg[sl][v]
++                wpsnr, wssim = affine_metrics(wp, wg)
++                win.append({"start": w0, "pearson_gt": pearson(wp, wg), "psnr_affine": wpsnr, "ssim_affine": wssim,
++                            "gain": wpsnr - const_psnr(wg), "jump_ratio": chunk_jump(pg[sl]),
++                            "pred_mean": float(wp.mean()), "gt_mean": float(wg.mean()),
++                            "pred_std": float(wp.std()), "gt_std": float(wg.std())})
++            rows[-1]["windows"] = win
+         print(json.dumps(rows[-1]), flush=True)
+     summ = {k: float(np.mean([r[k] for r in rows])) for k in ("psnr_affine", "ssim_affine", "pearson_gt", "pearson_rgb",
+                                                               "gt_vs_rgb", "psnr_const", "jump_ratio", "jump_ratio_gt",
+-                                                              "sample_sec")}
++                                                              "sample_sec", "sec_per_chunk", "gen_fps")}
+     json.dump({"ckpt": a.ckpt, "use_ema": a.use_ema, "config": a.config, "summary": summ, "per_clip": rows},
+               open(os.path.join(a.out, "metrics.json"), "w"), indent=1)
+     print("SUMMARY", json.dumps(summ), flush=True)
+-- 
+2.52.0
+
+
+From 843168adffc4cfb628fdb3d23587a045e379f872 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 11:23:19 +0800
+Subject: [PATCH 24/39] DMD config: own few-step LoRA from scratch (no Plug
+ init)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ .../configs/thermal/train_dmd_r2t_own.yaml    | 109 ++++++++++++++++++
+ 1 file changed, 109 insertions(+)
+ create mode 100644 LongLive2.0/configs/thermal/train_dmd_r2t_own.yaml
+
+diff --git a/LongLive2.0/configs/thermal/train_dmd_r2t_own.yaml b/LongLive2.0/configs/thermal/train_dmd_r2t_own.yaml
+new file mode 100644
+index 0000000..59d166e
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/train_dmd_r2t_own.yaml
+@@ -0,0 +1,109 @@
++# thermal-v2v: DMD / self-forcing few-step stage with a BIDIRECTIONAL teacher (CausVid / Self-Forcing recipe).
++# Student (generator): causal AR model from the teacher-forcing SFT (v1 EMA snapshot), 2 interleaved frames per block,
++#   LoRA r128 trained FROM SCRATCH (B=0, no LongLive-Plug init: the Plug LoRA, trained on RGB T2V, pulled outputs toward
++#   grayscale-photo appearance, e.g. dark windows where the teacher has hot/bright ones), 4 UniPC steps, self-forcing rollouts.
++# Real score + critic: the phase-1 bidirectional ICL teacher (wan_models/ default weights) run as ONE block over the
++#   whole interleaved clip (full attention). The real score has no chunk seams, so DMD pulls the student's rollouts
++#   toward seam-free videos. Unconditional branch = RGB zeroed (the ICL teacher's null condition); scale 1.0 = CFG 2.
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  real_score_fsdp_wrap_strategy: size
++  fake_score_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: -1
++  interleave_cond: true
++
++real_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++fake_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++checkpoints:
++  generator_ckpt: /hpctmp/yky/thermal_v2v/models/longlive/v1_ema_step2000.pt
++
++algorithm:
++  trainer: score_distillation
++  distribution_loss: dmd
++  i2v: false
++  all_causal: true
++  generator_is_causal: true
++  backward_simulation: true
++  teacher_forcing: false
++  independent_first_frame: false
++  ts_schedule: false
++  real_guidance_scale: 1.0
++  fake_guidance_scale: 0.0
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  lr_critic: 2.0e-06
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  beta1_critic: 0.0
++  beta2_critic: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.0
++  ema_start_step: 100000
++  log_iters: 100
++  max_checkpoints: 3
++  max_iters: 2000
++  gc_interval: 100
++  dfake_gen_update_ratio: 5
++  min_num_training_frames: 42
++  num_training_frames: 42
++  slice_last_frames: 42
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/train
++  thermal_prompt: transfer rgb to thermal
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 4
++  sink_size: 0
++  local_attn_size: 42
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++
++adapter:
++  type: lora
++  rank: 128
++  alpha: 128
++  dropout: 0.0
++  apply_to_critic: true
++
++logging:
++  seed: 0
++  wandb_project: thermal-v2v-dmd
+-- 
+2.52.0
+
+
+From 432f7ad43d2a26e790aa380985d5e8eb83b10667 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 14:09:58 +0800
+Subject: [PATCH 25/39] infer config: frame-sink variant
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ .../configs/thermal/infer_ar_r2t_sink2.yaml   | 36 +++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+ create mode 100644 LongLive2.0/configs/thermal/infer_ar_r2t_sink2.yaml
+
+diff --git a/LongLive2.0/configs/thermal/infer_ar_r2t_sink2.yaml b/LongLive2.0/configs/thermal/infer_ar_r2t_sink2.yaml
+new file mode 100644
+index 0000000..6e54c01
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/infer_ar_r2t_sink2.yaml
+@@ -0,0 +1,36 @@
++# sink variant: first RGB+thermal pair kept in the rolling KV cache (LongLive frame sink)
++# thermal-v2v: streaming RGB->thermal inference (thermal_eval.py). 2 interleaved frames per chunk = 4 video frames.
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: 42
++  interleave_cond: true
++
++i2v: false
++use_ema: false
++thermal_prompt: transfer rgb to thermal
++
++data:
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++
++inference:
++  sampling_steps: 30
++  independent_first_frame: false
++  local_attn_size: 42
++  sink_size: 2
++  guidance_scale: 1.0
++  multi_shot_sink: false
++  multi_shot_rope_offset: 0
++  streaming_vae: false
++  async_vae: false
++  vae_type: wan
++  negative_prompt: ''
++
++logging:
++  seed: 0
+-- 
+2.52.0
+
+
+From bb6edea89b4f67465631b0068e6bdfc924254bd8 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 15:00:32 +0800
+Subject: [PATCH 26/39] DMD LoRA mode: EMA of the generator LoRA
+ (generator_lora_ema); thermal_eval uses it by default
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ .../configs/thermal/train_dmd_r2t_own.yaml    |  4 ++
+ LongLive2.0/thermal_eval.py                   |  5 +-
+ LongLive2.0/trainer/distillation.py           | 46 +++++++++++++++++++
+ 3 files changed, 54 insertions(+), 1 deletion(-)
+
+diff --git a/LongLive2.0/configs/thermal/train_dmd_r2t_own.yaml b/LongLive2.0/configs/thermal/train_dmd_r2t_own.yaml
+index 59d166e..7f2cc67 100644
+--- a/LongLive2.0/configs/thermal/train_dmd_r2t_own.yaml
++++ b/LongLive2.0/configs/thermal/train_dmd_r2t_own.yaml
+@@ -64,6 +64,9 @@ training:
+   batch_size: 1
+   gradient_accumulation_steps: 1
+   ema_weight: 0.0
++  # thermal-v2v: EMA of the LoRA weights only (upstream disables EMA in LoRA mode). Saved as generator_lora_ema;
++  # thermal_eval.py --lora_ckpt uses it by default (--lora_raw for raw). Enabled at step ~250 on resume.
++  lora_ema_weight: 0.99
+   ema_start_step: 100000
+   log_iters: 100
+   max_checkpoints: 3
+@@ -107,3 +110,4 @@ adapter:
+ logging:
+   seed: 0
+   wandb_project: thermal-v2v-dmd
++
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index 314aa5c..5bdec56 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -114,6 +114,7 @@ def main():
+     ap.add_argument("--steps", type=int, default=0, help="override inference.sampling_steps")
+     ap.add_argument("--lora_ckpt", action="append", default=[],
+                     help="PATH[:WEIGHT] of a LongLive DMD checkpoint (dict with 'generator_lora'), merged in memory")
++    ap.add_argument("--lora_raw", action="store_true", help="--lora_ckpt: use the raw LoRA even if an EMA is saved")
+     ap.add_argument("--lora_alpha", type=float, default=128.0, help="alpha of --lora_ckpt adapters (rank read from A)")
+     ap.add_argument("--tf_history", action="store_true",
+                     help="diagnostic: recache each chunk with the GROUND-TRUTH thermal (teacher-forced history)")
+@@ -142,7 +143,9 @@ def main():
+         merge_lora(pipe.generator.model, spec)
+     for spec in a.lora_ckpt:
+         ck = torch.load(spec.partition(":")[0], map_location="cpu")
+-        merge_lora(pipe.generator.model, spec, sd=ck["generator_lora"], alpha=a.lora_alpha)
++        key = "generator_lora_ema" if ("generator_lora_ema" in ck and not a.lora_raw) else "generator_lora"
++        print(f"--lora_ckpt {spec}: using {key} (step {ck.get('step')})", flush=True)
++        merge_lora(pipe.generator.model, spec, sd=ck[key], alpha=a.lora_alpha)
+     pipe = pipe.to(device=device, dtype=torch.bfloat16)
+     pipe.vae = pipe.vae.to(device=device, dtype=torch.bfloat16)
+ 
+diff --git a/LongLive2.0/trainer/distillation.py b/LongLive2.0/trainer/distillation.py
+index d11dfef..c9c9268 100644
+--- a/LongLive2.0/trainer/distillation.py
++++ b/LongLive2.0/trainer/distillation.py
+@@ -7,6 +7,37 @@ from utils.dataset import cycle
+ from utils.dataset import MultiVideoConcatDataset, MultiTextConcatDataset, multi_video_collate_fn, eval_collate_fn, DEFAULT_SCENE_CUT_PREFIX
+ from utils.config import section_get, wan_default_config
+ from utils.distributed import EMA_FSDP, fsdp_wrap, launch_distributed_job
++
++
++class LoraEMA:
++    """thermal-v2v: fp32 EMA of the trainable (LoRA) generator weights, keyed like peft's LoRA state dict."""
++
++    def __init__(self, root, decay, resume=None):
++        # root = the FSDP-wrapped generator (summoned so root-owned LoRA params are full on every rank);
++        # parameters are walked on root.model, the peft model, so keys match get_peft_model_state_dict
++        self.decay = decay
++        self.shadow = {}
++        with torch.no_grad(), FSDP.summon_full_params(root, writeback=False):
++            for n, p in root.model.named_parameters():
++                if p.requires_grad:
++                    k = self._key(n)
++                    src = resume[k] if resume is not None and k in resume else p.detach()
++                    self.shadow[k] = src.to(device=p.device, dtype=torch.float32).clone()
++
++    @staticmethod
++    def _key(n):
++        n = n.replace("_fsdp_wrapped_module.", "").replace("_checkpoint_wrapped_module.", "").replace("_orig_mod.", "")
++        return n.replace(".default.", ".")
++
++    @torch.no_grad()
++    def update(self, root):
++        with FSDP.summon_full_params(root, writeback=False):
++            for n, p in root.model.named_parameters():
++                if p.requires_grad:
++                    self.shadow[self._key(n)].mul_(self.decay).add_(p.detach().float(), alpha=1.0 - self.decay)
++
++    def state_dict(self):
++        return {k: v.detach().to("cpu").clone() for k, v in self.shadow.items()}
+ from utils.misc import (
+     set_seed,
+     merge_dict_list
+@@ -355,6 +386,7 @@ class Trainer:
+                     del lora_checkpoint["critic_lora"]
+                 gc.collect()
+ 
++                self._lora_ema_resume = lora_checkpoint.pop("generator_lora_ema", None)
+                 if "step" in lora_checkpoint:
+                     self.step = lora_checkpoint["step"]
+                     if self.is_main_process:
+@@ -443,6 +475,16 @@ class Trainer:
+             else:
+                 print(f"Setting up EMA with weight {ema_weight}")
+                 self.generator_ema = EMA_FSDP(self.model.generator, decay=ema_weight)
++        # thermal-v2v: upstream turns EMA off in LoRA mode; keep an EMA of the generator LoRA weights only
++        # (phase-1 lesson: the FastVideo LoRA DMD was stable only with EMA). Saved as "generator_lora_ema".
++        self.lora_ema = None
++        lora_ema_weight = float(getattr(config, "lora_ema_weight", 0.0) or 0.0)
++        if self.is_lora_enabled and lora_ema_weight > 0:
++            self.lora_ema = LoraEMA(self.model.generator, lora_ema_weight,
++                                    getattr(self, "_lora_ema_resume", None))
++            if self.is_main_process:
++                print(f"LoRA EMA decay={lora_ema_weight} over {len(self.lora_ema.shadow)} tensors "
++                      f"({'resumed' if getattr(self, '_lora_ema_resume', None) else 'fresh'})")
+ 
+         # Step 4: Initialize the optimizer
+         self.generator_optimizer = torch.optim.AdamW(
+@@ -951,6 +993,8 @@ class Trainer:
+                 "critic_lora": crit_lora_sd,
+                 "step": self.step,
+             }
++            if self.lora_ema is not None:
++                state_dict["generator_lora_ema"] = self.lora_ema.state_dict()
+         else:
+             with FSDP.state_dict_type(
+                 self.model.generator,
+@@ -1215,6 +1259,8 @@ class Trainer:
+                     self.generator_optimizer.step()
+                     if self.generator_ema is not None:
+                         self.generator_ema.update(self.model.generator)
++                    if self.lora_ema is not None:
++                        self.lora_ema.update(self.model.generator)
+                 else:
+                     generator_log_dict = {}
+ 
+-- 
+2.52.0
+
+
+From 7e36c8551280b1a148200ccf382f3d12f36011ea Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 15:02:49 +0800
+Subject: [PATCH 27/39] DMD long-rollout tuning: interleave-aware slicing (RGB
+ view for loss helpers), long config + smoke
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ .../configs/thermal/smoke_dmd_r2t_long.yaml   | 114 ++++++++++++++++++
+ .../configs/thermal/train_dmd_r2t_long.yaml   | 112 +++++++++++++++++
+ LongLive2.0/model/base.py                     |  17 ++-
+ LongLive2.0/model/dmd.py                      |   5 +-
+ LongLive2.0/utils/i2v_conditioning.py         |  21 +++-
+ 5 files changed, 261 insertions(+), 8 deletions(-)
+ create mode 100644 LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml
+ create mode 100644 LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml
+
+diff --git a/LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml b/LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml
+new file mode 100644
+index 0000000..10cc029
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml
+@@ -0,0 +1,114 @@
++# SMOKE of train_dmd_r2t_long.yaml: 4 iterations on the day5 long-demo latent (val seq; smoke only), no save.
++# thermal-v2v: LONG-ROLLOUT tuning of our own few-step LoRA (LongLive "streaming long tuning", Plug-style: base frozen,
++# LoRA only). The student self-rolls 42..242 interleaved frames (up to 121 RGB/thermal pairs = ~48 s) with a rolling
++# 21-pair KV window + a 1-pair frame sink, and the bidirectional teacher / critic score only the LAST 21 pairs, so the
++# student learns to stay on-distribution far beyond the window. Starts from the short-window LoRA (lora_ckpt).
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  real_score_fsdp_wrap_strategy: size
++  fake_score_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: 42
++  sink_size: 2
++  interleave_cond: true
++
++real_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++fake_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++checkpoints:
++  generator_ckpt: /hpctmp/yky/thermal_v2v/models/longlive/v1_ema_step2000.pt
++  lora_ckpt: /hpctmp/yky/thermal_v2v/runs/ll_dmd_r2t_own/keep/own_s100.pt  # set to the best short-window step
++
++algorithm:
++  trainer: score_distillation
++  distribution_loss: dmd
++  i2v: false
++  all_causal: true
++  generator_is_causal: true
++  backward_simulation: true
++  teacher_forcing: false
++  independent_first_frame: false
++  ts_schedule: false
++  real_guidance_scale: 1.0
++  fake_guidance_scale: 0.0
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  lr_critic: 2.0e-06
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  beta1_critic: 0.0
++  beta2_critic: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.0
++  # thermal-v2v: EMA of the LoRA weights only (upstream disables EMA in LoRA mode). Saved as generator_lora_ema;
++  # thermal_eval.py --lora_ckpt uses it by default (--lora_raw for raw). Enabled at step ~250 on resume.
++  lora_ema_weight: 0.99
++  ema_start_step: 100000
++  log_iters: 100
++  max_checkpoints: 3
++  max_iters: 4
++  no_save: true
++  gc_interval: 100
++  dfake_gen_update_ratio: 5
++  min_num_training_frames: 242
++  num_training_frames: 242
++  slice_last_frames: 42
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/long_demo
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/long_demo
++  thermal_prompt: transfer rgb to thermal
++  image_or_video_shape:
++  - 1
++  - 242
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 4
++  sink_size: 2
++  local_attn_size: 42
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++
++adapter:
++  type: lora
++  rank: 128
++  alpha: 128
++  dropout: 0.0
++  apply_to_critic: true
++
++logging:
++  seed: 0
++  wandb_project: thermal-v2v-dmd-long
++
+diff --git a/LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml b/LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml
+new file mode 100644
+index 0000000..261d052
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml
+@@ -0,0 +1,112 @@
++# thermal-v2v: LONG-ROLLOUT tuning of our own few-step LoRA (LongLive "streaming long tuning", Plug-style: base frozen,
++# LoRA only). The student self-rolls 42..242 interleaved frames (up to 121 RGB/thermal pairs = ~48 s) with a rolling
++# 21-pair KV window + a 1-pair frame sink, and the bidirectional teacher / critic score only the LAST 21 pairs, so the
++# student learns to stay on-distribution far beyond the window. Starts from the short-window LoRA (lora_ckpt).
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  real_score_fsdp_wrap_strategy: size
++  fake_score_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: 42
++  sink_size: 2
++  interleave_cond: true
++
++real_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++fake_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++checkpoints:
++  generator_ckpt: /hpctmp/yky/thermal_v2v/models/longlive/v1_ema_step2000.pt
++  lora_ckpt: /hpctmp/yky/thermal_v2v/runs/ll_dmd_r2t_own/keep/own_s100.pt  # set to the best short-window step
++
++algorithm:
++  trainer: score_distillation
++  distribution_loss: dmd
++  i2v: false
++  all_causal: true
++  generator_is_causal: true
++  backward_simulation: true
++  teacher_forcing: false
++  independent_first_frame: false
++  ts_schedule: false
++  real_guidance_scale: 1.0
++  fake_guidance_scale: 0.0
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  lr_critic: 2.0e-06
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  beta1_critic: 0.0
++  beta2_critic: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.0
++  # thermal-v2v: EMA of the LoRA weights only (upstream disables EMA in LoRA mode). Saved as generator_lora_ema;
++  # thermal_eval.py --lora_ckpt uses it by default (--lora_raw for raw). Enabled at step ~250 on resume.
++  lora_ema_weight: 0.99
++  ema_start_step: 100000
++  log_iters: 100
++  max_checkpoints: 3
++  max_iters: 2000
++  gc_interval: 100
++  dfake_gen_update_ratio: 5
++  min_num_training_frames: 84
++  num_training_frames: 242
++  slice_last_frames: 42
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_481f_s480/train
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_481f_s480/train
++  thermal_prompt: transfer rgb to thermal
++  image_or_video_shape:
++  - 1
++  - 242
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 4
++  sink_size: 2
++  local_attn_size: 42
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++
++adapter:
++  type: lora
++  rank: 128
++  alpha: 128
++  dropout: 0.0
++  apply_to_critic: true
++
++logging:
++  seed: 0
++  wandb_project: thermal-v2v-dmd-long
++
+diff --git a/LongLive2.0/model/base.py b/LongLive2.0/model/base.py
+index 8e84f9b..58e1999 100644
+--- a/LongLive2.0/model/base.py
++++ b/LongLive2.0/model/base.py
+@@ -308,6 +308,8 @@ class SelfForcingModel(BaseModel):
+         if initial_latent is not None:
+             conditional_dict["initial_latent"] = initial_latent
+         noise_shape = image_or_video_shape.copy()
++        from utils.i2v_conditioning import get_interleave_cond, set_interleave_view
++        set_interleave_view(None)  # the rollout itself indexes the whole clip's RGB
+ 
+         separate_first_frame = self.independent_first_frame and not getattr(self.args, "i2v", False)
+         min_num_frames = (self.min_num_training_frames - 1) if separate_first_frame else self.min_num_training_frames
+@@ -335,7 +337,20 @@ class SelfForcingModel(BaseModel):
+             **conditional_dict,
+         )
+ 
+-        if slice_last_frames != -1 and pred_image_or_video.shape[1] > slice_last_frames:
++        ll_full = get_interleave_cond()
++        if ll_full is not None:
++            # thermal-v2v interleaved [RGB_i, T_i]: keep whole pairs, no first-frame VAE re-encode (both modalities
++            # are plain 4-frame latents mid-sequence); point the loss helpers at the matching RGB pairs.
++            n_gen = pred_image_or_video.shape[1]
++            keep = n_gen if (slice_last_frames == -1 or n_gen <= slice_last_frames) else slice_last_frames
++            assert n_gen % 2 == 0 and keep % 2 == 0, (n_gen, keep)
++            pred_image_or_video_sliced = pred_image_or_video[:, n_gen - keep:]
++            set_interleave_view(ll_full[:, (n_gen - keep) // 2: n_gen // 2])
++            gradient_mask = None
++            if num_generated_frames != min_num_frames:
++                gradient_mask = torch.ones_like(pred_image_or_video_sliced, dtype=torch.bool)
++                gradient_mask[:, :self.num_frame_per_block] = False
++        elif slice_last_frames != -1 and pred_image_or_video.shape[1] > slice_last_frames:
+             with torch.no_grad():
+                 if slice_last_frames > 1:
+                     latent_to_decode = pred_image_or_video[:, :-(slice_last_frames - 1), ...]
+diff --git a/LongLive2.0/model/dmd.py b/LongLive2.0/model/dmd.py
+index 0971041..3b1ba17 100644
+--- a/LongLive2.0/model/dmd.py
++++ b/LongLive2.0/model/dmd.py
+@@ -24,9 +24,8 @@ def _uncond_text(cond, uncond):
+ 
+ def _null_rgb(x):
+     """thermal-v2v: unconditional branch = the ICL teacher's null condition (RGB latents zeroed)."""
+-    from utils.i2v_conditioning import get_interleave_cond
+-    c = get_interleave_cond()
+-    if c is None or x.shape[1] != 2 * c.shape[1]:
++    from utils.i2v_conditioning import _ll_cond_for
++    if _ll_cond_for(x) is None:
+         return x
+     x = x.clone()
+     x[:, 0::2] = 0
+diff --git a/LongLive2.0/utils/i2v_conditioning.py b/LongLive2.0/utils/i2v_conditioning.py
+index 6889840..d3545a6 100644
+--- a/LongLive2.0/utils/i2v_conditioning.py
++++ b/LongLive2.0/utils/i2v_conditioning.py
+@@ -2,21 +2,34 @@ import torch
+ 
+ # thermal-v2v: interleaved [RGB_0, T_0, RGB_1, T_1, ...] conditioning for DMD / self-forcing. When set, the helpers
+ # below also clamp / zero-timestep / loss-mask every even (RGB) frame of FULL-length videos (2 * num_pairs frames).
+-_LL_COND = {"cond": None}
++_LL_COND = {"cond": None, "view": None}
+ 
+ 
+ def set_interleave_cond(cond):
+     """cond: [B, num_pairs, C, H, W] clean normalised RGB latents for the current batch (or None)."""
+     _LL_COND["cond"] = cond
++    _LL_COND["view"] = None
+ 
+ 
+ def get_interleave_cond():
+     return _LL_COND["cond"]
+ 
+ 
++def set_interleave_view(view):
++    """The RGB latents matching the video the DMD / critic losses see: a rollout may be shorter than the clip and
++    long-rollout tuning keeps only its last slice_last_frames frames. None = the whole clip."""
++    _LL_COND["view"] = view
++
++
++def _ll_cond_for(x):
++    c = _LL_COND["view"] if _LL_COND["view"] is not None else _LL_COND["cond"]
++    if c is not None and x.ndim >= 2 and x.shape[1] == 2 * c.shape[1]:
++        return c
++    return None
++
++
+ def _ll_full(x):
+-    c = _LL_COND["cond"]
+-    return c is not None and x.ndim >= 2 and x.shape[1] == 2 * c.shape[1]
++    return _ll_cond_for(x) is not None
+ 
+ 
+ def _get_i2v_context_frames(
+@@ -59,7 +72,7 @@ def _overwrite_i2v_context(
+ ) -> torch.Tensor:
+     if _ll_full(image_or_video):
+         image_or_video = image_or_video.clone()
+-        image_or_video[:, 0::2] = _LL_COND["cond"].to(device=image_or_video.device, dtype=image_or_video.dtype)
++        image_or_video[:, 0::2] = _ll_cond_for(image_or_video).to(device=image_or_video.device, dtype=image_or_video.dtype)
+     if context_frames <= 0:
+         return image_or_video
+     output = image_or_video.clone()
+-- 
+2.52.0
+
+
+From 295773dc7b7ad686cc351cd0a16910f2a656feb3 Mon Sep 17 00:00:00 2001
+From: Yan Keyu <yky@hopper-l-02.cm.cluster>
+Date: Fri, 16 Oct 2026 15:02:59 +0800
+Subject: [PATCH 28/39] smoke long: max_iters after resume step
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml b/LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml
+index 10cc029..f41940e 100644
+--- a/LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml
++++ b/LongLive2.0/configs/thermal/smoke_dmd_r2t_long.yaml
+@@ -70,7 +70,7 @@ training:
+   ema_start_step: 100000
+   log_iters: 100
+   max_checkpoints: 3
+-  max_iters: 4
++  max_iters: 102  # lora_ckpt resumes at step 100: one generator + one critic iteration
+   no_save: true
+   gc_interval: 100
+   dfake_gen_update_ratio: 5
+-- 
+2.52.0
+
+
+From 31e38f01aedce28d31d4ccdbe36c899c59329ec7 Mon Sep 17 00:00:00 2001
+From: Yan Keyu <yky@hopper-l-02.cm.cluster>
+Date: Fri, 16 Oct 2026 16:09:15 +0800
+Subject: [PATCH 29/39] long DMD: 162-frame rollouts on Hopper, lora_ckpt via
+ best.pt
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml | 8 ++++----
+ 1 file changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml b/LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml
+index 261d052..c2c0a5f 100644
+--- a/LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml
++++ b/LongLive2.0/configs/thermal/train_dmd_r2t_long.yaml
+@@ -1,5 +1,5 @@
+ # thermal-v2v: LONG-ROLLOUT tuning of our own few-step LoRA (LongLive "streaming long tuning", Plug-style: base frozen,
+-# LoRA only). The student self-rolls 42..242 interleaved frames (up to 121 RGB/thermal pairs = ~48 s) with a rolling
++# LoRA only). The student self-rolls 84..162 interleaved frames (up to 81 RGB/thermal pairs = ~32 s) with a rolling
+ # 21-pair KV window + a 1-pair frame sink, and the bidirectional teacher / critic score only the LAST 21 pairs, so the
+ # student learns to stay on-distribution far beyond the window. Starts from the short-window LoRA (lora_ckpt).
+ infra:
+@@ -36,7 +36,7 @@ fake_model_kwargs:
+ 
+ checkpoints:
+   generator_ckpt: /hpctmp/yky/thermal_v2v/models/longlive/v1_ema_step2000.pt
+-  lora_ckpt: /hpctmp/yky/thermal_v2v/runs/ll_dmd_r2t_own/keep/own_s100.pt  # set to the best short-window step
++  lora_ckpt: /hpctmp/yky/thermal_v2v/runs/ll_dmd_r2t_own/keep/best.pt  # symlink -> best short-window step (read at first start only)
+ 
+ algorithm:
+   trainer: score_distillation
+@@ -73,7 +73,7 @@ training:
+   gc_interval: 100
+   dfake_gen_update_ratio: 5
+   min_num_training_frames: 84
+-  num_training_frames: 242
++  num_training_frames: 162  # Hopper prototype: up to 81 pairs (~32 s = 4x the window); H20 run: 242+
+   slice_last_frames: 42
+ 
+ data:
+@@ -83,7 +83,7 @@ data:
+   thermal_prompt: transfer rgb to thermal
+   image_or_video_shape:
+   - 1
+-  - 242
++  - 162
+   - 48
+   - 32
+   - 40
+-- 
+2.52.0
+
+
+From 78a0e389003dff8a4cca1651d41ce0b9b3d0d728 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 16:53:37 +0800
+Subject: [PATCH 30/39] LoraEMA: define after imports (NameError: torch)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/trainer/distillation.py | 50 +++++++++++++++--------------
+ 1 file changed, 26 insertions(+), 24 deletions(-)
+
+diff --git a/LongLive2.0/trainer/distillation.py b/LongLive2.0/trainer/distillation.py
+index c9c9268..9f18d1e 100644
+--- a/LongLive2.0/trainer/distillation.py
++++ b/LongLive2.0/trainer/distillation.py
+@@ -8,6 +8,32 @@ from utils.dataset import MultiVideoConcatDataset, MultiTextConcatDataset, multi
+ from utils.config import section_get, wan_default_config
+ from utils.distributed import EMA_FSDP, fsdp_wrap, launch_distributed_job
+ 
++from utils.misc import (
++    set_seed,
++    merge_dict_list
++)
++from utils.sampler import build_training_sampler
++import torch.distributed as dist
++from omegaconf import OmegaConf
++from model import DMD
++import torch
++import wandb
++import os
++from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
++from torch.distributed.fsdp import (
++    StateDictType, FullStateDictConfig, FullOptimStateDictConfig
++)
++from torchvision.io import write_video
++
++# LoRA related imports
++import peft
++from peft import get_peft_model_state_dict
++
++from pipeline import (
++    CausalDiffusionInferencePipeline
++)
++import time
++
+ 
+ class LoraEMA:
+     """thermal-v2v: fp32 EMA of the trainable (LoRA) generator weights, keyed like peft's LoRA state dict."""
+@@ -38,31 +64,7 @@ class LoraEMA:
+ 
+     def state_dict(self):
+         return {k: v.detach().to("cpu").clone() for k, v in self.shadow.items()}
+-from utils.misc import (
+-    set_seed,
+-    merge_dict_list
+-)
+-from utils.sampler import build_training_sampler
+-import torch.distributed as dist
+-from omegaconf import OmegaConf
+-from model import DMD
+-import torch
+-import wandb
+-import os
+-from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
+-from torch.distributed.fsdp import (
+-    StateDictType, FullStateDictConfig, FullOptimStateDictConfig
+-)
+-from torchvision.io import write_video
+-
+-# LoRA related imports
+-import peft
+-from peft import get_peft_model_state_dict
+ 
+-from pipeline import (
+-    CausalDiffusionInferencePipeline
+-)
+-import time
+ 
+ class Trainer:
+     
+-- 
+2.52.0
+
+
+From 2005eb8afe7f9a09d4023071088bd02663425458 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 17:24:52 +0800
+Subject: [PATCH 31/39] long-rollout DMD: compact rolling KV cache before the
+ gradient region (checkpoint recompute mismatch)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/pipeline/self_forcing_training.py | 26 +++++++++++++++++++
+ 1 file changed, 26 insertions(+)
+
+diff --git a/LongLive2.0/pipeline/self_forcing_training.py b/LongLive2.0/pipeline/self_forcing_training.py
+index 3296b20..3478b34 100644
+--- a/LongLive2.0/pipeline/self_forcing_training.py
++++ b/LongLive2.0/pipeline/self_forcing_training.py
+@@ -524,6 +524,8 @@ class SelfForcingTrainingPipeline:
+ 
+         grad_enable_mask = torch.zeros((batch_size, sum(all_num_frames)), dtype=torch.bool)
+         for block_index, current_num_frames in enumerate(all_num_frames):
++            if current_start_frame == start_gradient_frame_index and start_gradient_frame_index > 0:
++                self._compact_kv_cache_for_grad_region()
+             if phi != 0.0 and self._is_scene_cut_from_mask(scene_cut_mask, block_index):
+                 current_shot_index += 1
+                 self.generator.model.rope_temporal_offset = current_shot_index * phi
+@@ -706,6 +708,30 @@ class SelfForcingTrainingPipeline:
+ 
+         return output, denoised_timestep_from, denoised_timestep_to
+ 
++    @torch.no_grad()
++    def _compact_kv_cache_for_grad_region(self):
++        """thermal-v2v: long rollouts (num_training_frames > local window) evict KV entries block by block. Under
++        gradient checkpointing the backward recomputes each gradient-enabled block against the cache as it is at
++        backward time, so an eviction inside the gradient region makes the recomputed attention window differ from
++        the forward one (CheckpointError, or silently wrong grads). Upstream sizes the cache as local_attn_size +
++        slice_last_frames for exactly this, but never frees that room. Before the first gradient-enabled block, keep
++        only [sink | last (local_attn_size - sink) frames], moved to the front, so the gradient region fits without
++        eviction. The attended window is unchanged: it was those frames anyway."""
++        if self.local_attn_size == -1 or self.kv_cache1 is None:
++            return
++        fsl = self.frame_seq_length
++        keep = self.local_attn_size * fsl
++        sink = max(int(self.sink_size or 0), int(self.global_sink_size or 0)) * fsl
++        for c in self.kv_cache1:
++            end = int(c["local_end_index"].item())
++            if end <= keep:
++                continue
++            for name in ("k", "v"):
++                t = c[name]
++                tail = t[:, end - (keep - sink):end].clone()
++                t[:, sink:keep] = tail
++            c["local_end_index"].fill_(keep)
++
+     def _initialize_kv_cache(self, batch_size, dtype, device):
+         """
+         Initialize a Per-GPU KV cache for the Wan model.
+-- 
+2.52.0
+
+
+From bdaf78f6973f9e0b6aad4e5d75baef3c3c438735 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 17:25:06 +0800
+Subject: [PATCH 32/39] trainer: re-raise after logging a crash (non-zero exit
+ for the farm)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/trainer/distillation.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/LongLive2.0/trainer/distillation.py b/LongLive2.0/trainer/distillation.py
+index 9f18d1e..eb67b23 100644
+--- a/LongLive2.0/trainer/distillation.py
++++ b/LongLive2.0/trainer/distillation.py
+@@ -1362,6 +1362,7 @@ class Trainer:
+             print(f"[ERROR] [Rank {dist.get_rank()}] Exception traceback:", flush=True)
+             import traceback
+             traceback.print_exc()
++            raise  # thermal-v2v: a swallowed crash exits 0 and the farm files the job as done
+ 
+     def _init_lora_from_adapter(self, peft_model, path):
+         """thermal-v2v: copy lora_A/lora_B from a PEFT adapter_model.safetensors (e.g. LongLive-Plug few-step) into
+-- 
+2.52.0
+
+
+From 167f1137e07a293256ba3d5d00f3a3eec2a6f29d Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 18:13:18 +0800
+Subject: [PATCH 33/39] structured captions: per-file rgb2thermal caption from
+ latent metadata (thermal_prompt: structured)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/thermal_eval.py          |  4 +++-
+ LongLive2.0/utils/thermal_dataset.py | 21 ++++++++++++++++++++-
+ 2 files changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/LongLive2.0/thermal_eval.py b/LongLive2.0/thermal_eval.py
+index 5bdec56..4a85be6 100644
+--- a/LongLive2.0/thermal_eval.py
++++ b/LongLive2.0/thermal_eval.py
+@@ -167,6 +167,8 @@ def main():
+                 ffc = json.loads((fh.metadata() or {}).get("meta", "{}")).get("ffc", [])
+         else:
+             ffc = []
++        from utils.thermal_dataset import caption_for_file
++        clip_prompt = caption_for_file(path, prompt)
+         cond = ((d["cond"].float()[None, :, :f_lat] - mean) / std)  # [1, 48, f, h, w]
+         tgt = ((d["target"].float()[None, :, :f_lat] - mean) / std)
+         cond_bf = cond.permute(0, 2, 1, 3, 4).to(device, torch.bfloat16)  # [1, f, 48, h, w]
+@@ -174,7 +176,7 @@ def main():
+         noise = torch.randn((1, 2 * f_lat, 48, cond.shape[-2], cond.shape[-1]), generator=gen).to(device, torch.bfloat16)
+         num_blocks = (2 * f_lat) // pipe.num_frame_per_block
+         t0 = time.time()
+-        lat = pipe.inference(noise=noise, text_prompts=[[prompt] * num_blocks], return_latents=True,
++        lat = pipe.inference(noise=noise, text_prompts=[[clip_prompt] * num_blocks], return_latents=True,
+                              cond_latents=cond_bf,
+                              gt_target_latents=(tgt.permute(0, 2, 1, 3, 4).to(device, torch.bfloat16)
+                                                 if a.tf_history else None))
+diff --git a/LongLive2.0/utils/thermal_dataset.py b/LongLive2.0/utils/thermal_dataset.py
+index f7b14f0..eab5431 100644
+--- a/LongLive2.0/utils/thermal_dataset.py
++++ b/LongLive2.0/utils/thermal_dataset.py
+@@ -8,10 +8,13 @@ ICL teacher) and interleaved along time as [RGB_0, T_0, RGB_1, T_1, ...] -> [2*f
+ Batch layout matches the trainer's precomputed-latent path: {"prompts": [[prompt]], "ode_latent": [B, 1, 2f, C, H, W]}.
+ """
+ import glob
++import json
+ import os
+ import random
++import sys
+ 
+ import torch
++from safetensors import safe_open
+ from safetensors.torch import load_file
+ from torch.utils.data import Dataset
+ 
+@@ -25,6 +28,21 @@ WAN22_STD = [0.4765, 1.0364, 0.4514, 1.1677, 0.5313, 0.4990, 0.4818, 0.5013, 0.8
+              1.6887, 0.3971, 1.0600, 0.3943, 0.5537, 0.5444, 0.4089, 0.7468, 0.7744]
+ 
+ 
++def caption_for_file(path: str, prompt: str) -> str:
++    """thermal-v2v structured captions: prompt == "structured" builds the rgb2thermal caption from the file's
++    sensor/media metadata (thermal_v2v datasets/captions.py, found via $THERMAL_V2V_REPO); any other prompt is
++    used verbatim (legacy fixed prompt)."""
++    if prompt != "structured":
++        return prompt
++    repo = os.environ.get("THERMAL_V2V_REPO")
++    if repo and repo not in sys.path:
++        sys.path.insert(0, repo)
++    from datasets.captions import caption
++    with safe_open(path, "pt") as fh:
++        meta = json.loads((fh.metadata() or {}).get("meta", "{}"))
++    return caption("rgb2thermal", meta.get("sensor", "radiometric"), meta.get("media", "video"))
++
++
+ class InterleavedThermalLatents(Dataset):
+     def __init__(self, latent_dir: str, num_latent_frames: int, prompt: str = "transfer rgb to thermal",
+                  random_crop_time: bool = True):
+@@ -55,7 +73,8 @@ class InterleavedThermalLatents(Dataset):
+         tgt = (tgt - self.mean) / self.std
+         x = torch.stack([cond, tgt], dim=2).flatten(1, 2)  # [48, 2f, h, w], frame order RGB_0, T_0, RGB_1, ...
+         x = x.permute(1, 0, 2, 3).contiguous()  # [2f, 48, h, w]
+-        return {"prompts": [self.prompt], "ode_latent": x.unsqueeze(0), "file": os.path.basename(self.files[idx])}
++        return {"prompts": [caption_for_file(self.files[idx], self.prompt)], "ode_latent": x.unsqueeze(0),
++                "file": os.path.basename(self.files[idx])}
+ 
+ 
+ def thermal_collate(items):
+-- 
+2.52.0
+
+
+From 6dc3cb1fe393035304e6adb4b25a0da5bd0adab2 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 18:22:12 +0800
+Subject: [PATCH 34/39] self-forcing rollout: keep attention overrides for the
+ checkpoint recompute in backward
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/pipeline/self_forcing_training.py | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/LongLive2.0/pipeline/self_forcing_training.py b/LongLive2.0/pipeline/self_forcing_training.py
+index 3478b34..266ba3a 100644
+--- a/LongLive2.0/pipeline/self_forcing_training.py
++++ b/LongLive2.0/pipeline/self_forcing_training.py
+@@ -338,6 +338,12 @@ class SelfForcingTrainingPipeline:
+ 
+     def _restore_attn_overrides(self, prev):
+         """Restore model attention state saved by _apply_attn_overrides."""
++        # thermal-v2v: keep the rollout's attention settings. The generator's gradient-checkpointed blocks are
++        # recomputed during backward, AFTER the rollout returns; restoring here (to the model's init default, which
++        # is local_attn_size * 880 tokens, sized for Wan-1.3B frames) made the recomputed attention window wider
++        # than the forward one (CheckpointError with local windows; silently different attention otherwise).
++        # The generator is only ever run through these rollouts during training, so nothing needs the old values.
++        return
+         model = self.generator.model
+         model.local_attn_size = prev["local_attn_size"]
+         model.rope_temporal_offset = prev["rope_temporal_offset"]
+-- 
+2.52.0
+
+
+From 7e9e2cc5449b81af78b180e8be0b490e405f5869 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 18:46:23 +0800
+Subject: [PATCH 35/39] stage-2 configs: env paths, multi-source 81f data,
+ structured captions; multi-dir thermal dataset
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/configs/thermal/stage2_ar.yaml    | 93 +++++++++++++++++++
+ LongLive2.0/configs/thermal/stage2_infer.yaml | 36 +++++++
+ .../configs/thermal/stage2_infer_bidir.yaml   | 36 +++++++
+ LongLive2.0/utils/thermal_dataset.py          |  5 +-
+ 4 files changed, 169 insertions(+), 1 deletion(-)
+ create mode 100644 LongLive2.0/configs/thermal/stage2_ar.yaml
+ create mode 100644 LongLive2.0/configs/thermal/stage2_infer.yaml
+ create mode 100644 LongLive2.0/configs/thermal/stage2_infer_bidir.yaml
+
+diff --git a/LongLive2.0/configs/thermal/stage2_ar.yaml b/LongLive2.0/configs/thermal/stage2_ar.yaml
+new file mode 100644
+index 0000000..e52967f
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/stage2_ar.yaml
+@@ -0,0 +1,93 @@
++# thermal-v2v STAGE 2: causal AR teacher-forcing SFT (rgb2thermal) of the stage-1 teacher on LongLive 2.0.
++# Interleaved latent frames [RGB_0, T_0, RGB_1, T_1, ...]; one block = (RGB_i, T_i) = 4 video frames; 81-frame clips
++# (21 pairs). Init: the exported stage-1 teacher (scripts/stage2/export_teacher.py -> LLV2_MODEL_DIR).
++# Data: 81-frame video latents of TartanRGBT + KAIST (no still images), structured per-clip captions
++# (LLV2_PROMPT_EMBEDS = the stage-1 prompt_embeds.pt). Paths from the environment (thermal_v2v scripts/env.sh).
++# Launch: thermal_v2v scripts/stage2/train_ar.sh
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: -1
++  interleave_cond: true
++
++algorithm:
++  trainer: diffusion
++  i2v: false
++  causal: true
++  teacher_forcing: true
++  independent_first_frame: false
++  num_train_timestep: 1000
++  denoising_loss_type: flow
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.99
++  ema_start_step: 100
++  ema_every: 10
++  log_iters: 500
++  max_checkpoints: 1
++  max_iters: 3000         # phase-2 Hopper prototype used step 2000 (EMA); pick by eval
++  gc_interval: 100
++  save_optimizer: false
++  max_snapshots: 3
++  error_recycling:
++    enabled: true
++    num_buckets: 50
++    buffer_size_per_bucket: 100
++    buffer_warmup_iter: 50
++    context_inject_prob: 0.9
++    latent_inject_prob: 0.9
++    noise_inject_prob: 0.01
++    clean_prob: 0.2
++    clean_buffer_update_prob: 0.1
++    modulate_factor: 0.3
++    start_step: 0
++    replacement_strategy: random
++
++data:
++  data_path: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/train
++  eval_data_path: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/val
++  thermal_latent_dir: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/train,${oc.env:THERMAL_DATA}/latents/kaist_81f/train
++  thermal_prompt: structured   # per-clip caption from the latent's sensor/media metadata (datasets/captions.py)
++  # 81 video frames -> 21 latent frames per stream -> 42 interleaved frames at 32x40
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 50
++  sink_size: 0
++  guidance_scale: 1.0
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++  num_frames: 42
++  use_ema: true
++  val_batch_size: 1
++
++logging:
++  seed: 0
++  wandb_key: null
++  wandb_entity: null
++  wandb_project: thermal-v2v-stage2-ar
+diff --git a/LongLive2.0/configs/thermal/stage2_infer.yaml b/LongLive2.0/configs/thermal/stage2_infer.yaml
+new file mode 100644
+index 0000000..6cc89b5
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/stage2_infer.yaml
+@@ -0,0 +1,36 @@
++# thermal-v2v STAGE 2 eval: streaming rgb2thermal inference with structured per-clip captions (thermal_eval.py).
++# thermal-v2v: streaming RGB->thermal inference (thermal_eval.py). 2 interleaved frames per chunk = 4 video frames.
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: 42
++  interleave_cond: true
++
++i2v: false
++use_ema: false
++thermal_prompt: structured
++
++data:
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++
++inference:
++  sampling_steps: 30
++  independent_first_frame: false
++  local_attn_size: 42
++  sink_size: 0
++  guidance_scale: 1.0
++  multi_shot_sink: false
++  multi_shot_rope_offset: 0
++  streaming_vae: false
++  async_vae: false
++  vae_type: wan
++  negative_prompt: ''
++
++logging:
++  seed: 0
+diff --git a/LongLive2.0/configs/thermal/stage2_infer_bidir.yaml b/LongLive2.0/configs/thermal/stage2_infer_bidir.yaml
+new file mode 100644
+index 0000000..6f03d10
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/stage2_infer_bidir.yaml
+@@ -0,0 +1,36 @@
++# thermal-v2v STAGE 2 reference: the exported stage-1 teacher run bidirectionally (one block) with structured captions.
++# thermal-v2v: BIDIRECTIONAL reference — the whole 42-frame interleaved clip is one block (full attention), = phase-1 ICL teacher usage.
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: 42
++  interleave_cond: true
++
++i2v: false
++use_ema: false
++thermal_prompt: structured
++
++data:
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++
++inference:
++  sampling_steps: 30
++  independent_first_frame: false
++  local_attn_size: 42
++  sink_size: 0
++  guidance_scale: 1.0
++  multi_shot_sink: false
++  multi_shot_rope_offset: 0
++  streaming_vae: false
++  async_vae: false
++  vae_type: wan
++  negative_prompt: ''
++
++logging:
++  seed: 0
+diff --git a/LongLive2.0/utils/thermal_dataset.py b/LongLive2.0/utils/thermal_dataset.py
+index eab5431..f9b22cb 100644
+--- a/LongLive2.0/utils/thermal_dataset.py
++++ b/LongLive2.0/utils/thermal_dataset.py
+@@ -46,7 +46,10 @@ def caption_for_file(path: str, prompt: str) -> str:
+ class InterleavedThermalLatents(Dataset):
+     def __init__(self, latent_dir: str, num_latent_frames: int, prompt: str = "transfer rgb to thermal",
+                  random_crop_time: bool = True):
+-        self.files = sorted(glob.glob(os.path.join(latent_dir, "**", "*.safetensors"), recursive=True))
++        # thermal-v2v: one dir, or several (list / comma-separated) concatenated, e.g. TartanRGBT + KAIST videos
++        dirs = latent_dir.split(",") if isinstance(latent_dir, str) else list(latent_dir)
++        self.files = sorted(f for d in dirs for f in glob.glob(os.path.join(str(d).strip(), "**", "*.safetensors"),
++                                                                 recursive=True))
+         if not self.files:
+             raise FileNotFoundError(f"no .safetensors latents under {latent_dir}")
+         self.f = int(num_latent_frames)
+-- 
+2.52.0
+
+
+From 5dd579dfe83311a5c8f991cc8ef72cce2106b4f0 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 18:47:58 +0800
+Subject: [PATCH 36/39] stage-2 smoke config
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ .../configs/thermal/stage2_ar_smoke.yaml      | 94 +++++++++++++++++++
+ 1 file changed, 94 insertions(+)
+ create mode 100644 LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+
+diff --git a/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml b/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+new file mode 100644
+index 0000000..5eb7add
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+@@ -0,0 +1,94 @@
++# SMOKE TEST of stage2_ar.yaml (scripts/smoke_test.sh): 10 iterations, checkpoint at 10.
++# thermal-v2v STAGE 2: causal AR teacher-forcing SFT (rgb2thermal) of the stage-1 teacher on LongLive 2.0.
++# Interleaved latent frames [RGB_0, T_0, RGB_1, T_1, ...]; one block = (RGB_i, T_i) = 4 video frames; 81-frame clips
++# (21 pairs). Init: the exported stage-1 teacher (scripts/stage2/export_teacher.py -> LLV2_MODEL_DIR).
++# Data: 81-frame video latents of TartanRGBT + KAIST (no still images), structured per-clip captions
++# (LLV2_PROMPT_EMBEDS = the stage-1 prompt_embeds.pt). Paths from the environment (thermal_v2v scripts/env.sh).
++# Launch: thermal_v2v scripts/stage2/train_ar.sh
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: -1
++  interleave_cond: true
++
++algorithm:
++  trainer: diffusion
++  i2v: false
++  causal: true
++  teacher_forcing: true
++  independent_first_frame: false
++  num_train_timestep: 1000
++  denoising_loss_type: flow
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.99
++  ema_start_step: 2
++  ema_every: 1
++  log_iters: 10
++  max_checkpoints: 1
++  max_iters: 10
++  gc_interval: 100
++  save_optimizer: false
++  max_snapshots: 3
++  error_recycling:
++    enabled: true
++    num_buckets: 50
++    buffer_size_per_bucket: 100
++    buffer_warmup_iter: 2
++    context_inject_prob: 0.9
++    latent_inject_prob: 0.9
++    noise_inject_prob: 0.01
++    clean_prob: 0.2
++    clean_buffer_update_prob: 0.1
++    modulate_factor: 0.3
++    start_step: 0
++    replacement_strategy: random
++
++data:
++  data_path: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/train
++  eval_data_path: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/val
++  thermal_latent_dir: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/train,${oc.env:THERMAL_DATA}/latents/kaist_81f/train
++  thermal_prompt: structured   # per-clip caption from the latent's sensor/media metadata (datasets/captions.py)
++  # 81 video frames -> 21 latent frames per stream -> 42 interleaved frames at 32x40
++  image_or_video_shape:
++  - 1
++  - 42
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 50
++  sink_size: 0
++  guidance_scale: 1.0
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++  num_frames: 42
++  use_ema: true
++  val_batch_size: 1
++
++logging:
++  seed: 0
++  wandb_key: null
++  wandb_entity: null
++  wandb_project: thermal-v2v-stage2-ar
+-- 
+2.52.0
+
+
+From 2f4d2f93658575e66c52abc4f632484ae02a3b25 Mon Sep 17 00:00:00 2001
+From: Yan Keyu <yky@hopper-l-02.cm.cluster>
+Date: Fri, 16 Oct 2026 18:50:20 +0800
+Subject: [PATCH 37/39] stage-2 smoke: no checkpoint
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/configs/thermal/stage2_ar_smoke.yaml | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml b/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+index 5eb7add..c3d63dd 100644
+--- a/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
++++ b/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+@@ -1,4 +1,4 @@
+-# SMOKE TEST of stage2_ar.yaml (scripts/smoke_test.sh): 10 iterations, checkpoint at 10.
++# SMOKE TEST of stage2_ar.yaml (scripts/smoke_test.sh): 10 iterations, no checkpoint.
+ # thermal-v2v STAGE 2: causal AR teacher-forcing SFT (rgb2thermal) of the stage-1 teacher on LongLive 2.0.
+ # Interleaved latent frames [RGB_0, T_0, RGB_1, T_1, ...]; one block = (RGB_i, T_i) = 4 video frames; 81-frame clips
+ # (21 pairs). Init: the exported stage-1 teacher (scripts/stage2/export_teacher.py -> LLV2_MODEL_DIR).
+@@ -40,7 +40,7 @@ training:
+   ema_weight: 0.99
+   ema_start_step: 2
+   ema_every: 1
+-  log_iters: 10
++  log_iters: 100000   # no checkpoint in the smoke test (a full stage-2 checkpoint is ~50 GB)
+   max_checkpoints: 1
+   max_iters: 10
+   gc_interval: 100
+-- 
+2.52.0
+
+
+From 77c965029ee63df7af5adf48cbdd75a1c855a44d Mon Sep 17 00:00:00 2001
+From: Yan Keyu <yky@hopper-l-02.cm.cluster>
+Date: Fri, 16 Oct 2026 18:50:32 +0800
+Subject: [PATCH 38/39] stage-2 smoke: no_save
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/configs/thermal/stage2_ar_smoke.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml b/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+index c3d63dd..5f37ac9 100644
+--- a/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
++++ b/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+@@ -43,6 +43,7 @@ training:
+   log_iters: 100000   # no checkpoint in the smoke test (a full stage-2 checkpoint is ~50 GB)
+   max_checkpoints: 1
+   max_iters: 10
++  no_save: true
+   gc_interval: 100
+   save_optimizer: false
+   max_snapshots: 3
+-- 
+2.52.0
+
+
+From d7a10aeab13289f66a2e0e4288f47746950027ee Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 18:52:33 +0800
+Subject: [PATCH 39/39] captions: load thermal_v2v captions.py by path (name
+ clash with HF datasets)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/utils/thermal_dataset.py | 23 +++++++++++++++++++----
+ 1 file changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/LongLive2.0/utils/thermal_dataset.py b/LongLive2.0/utils/thermal_dataset.py
+index f9b22cb..4ac2e54 100644
+--- a/LongLive2.0/utils/thermal_dataset.py
++++ b/LongLive2.0/utils/thermal_dataset.py
+@@ -28,16 +28,31 @@ WAN22_STD = [0.4765, 1.0364, 0.4514, 1.1677, 0.5313, 0.4990, 0.4818, 0.5013, 0.8
+              1.6887, 0.3971, 1.0600, 0.3943, 0.5537, 0.5444, 0.4089, 0.7468, 0.7744]
+ 
+ 
++_CAPTIONS = None
++
++
++def _captions_module():
++    """Load thermal_v2v's datasets/captions.py by file path: the package name `datasets` collides with the Hugging
++    Face library, which may already be imported in this process."""
++    global _CAPTIONS
++    if _CAPTIONS is None:
++        import importlib.util
++        repo = os.environ.get("THERMAL_V2V_REPO")
++        if not repo:
++            raise RuntimeError("thermal_prompt: structured needs THERMAL_V2V_REPO (the thermal_v2v checkout)")
++        spec = importlib.util.spec_from_file_location("thermal_v2v_captions", os.path.join(repo, "datasets", "captions.py"))
++        _CAPTIONS = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(_CAPTIONS)
++    return _CAPTIONS
++
++
+ def caption_for_file(path: str, prompt: str) -> str:
+     """thermal-v2v structured captions: prompt == "structured" builds the rgb2thermal caption from the file's
+     sensor/media metadata (thermal_v2v datasets/captions.py, found via $THERMAL_V2V_REPO); any other prompt is
+     used verbatim (legacy fixed prompt)."""
+     if prompt != "structured":
+         return prompt
+-    repo = os.environ.get("THERMAL_V2V_REPO")
+-    if repo and repo not in sys.path:
+-        sys.path.insert(0, repo)
+-    from datasets.captions import caption
++    caption = _captions_module().caption
+     with safe_open(path, "pt") as fh:
+         meta = json.loads((fh.metadata() or {}).get("meta", "{}"))
+     return caption("rgb2thermal", meta.get("sensor", "radiometric"), meta.get("media", "video"))
+-- 
+2.52.0
+

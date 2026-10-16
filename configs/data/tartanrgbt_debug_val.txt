@@ -1,0 +1,5 @@
+# Held-out sequences (whole sequences) for the Hopper debug subset: indoor / urban-small / offroad-evening / campus
+day1/undistorted_images_all_cameras_20250822_123725  # indoor_NSH_first_floor 1443
+day2/undistorted_images_all_cameras_20250824_094534  # outdoor_urban_mill_19_exterior 302
+day4/undistorted_images_all_cameras_20250828_012214  # offroad_warehouse_loop_evening 745
+day5/undistorted_images_all_cameras_20250828_201013  # urban_campus_outdoor_1 2392

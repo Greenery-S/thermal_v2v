@@ -1,0 +1,172 @@
+From 59cd356ff4633386271c4e4818700a608ee0a8ac Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Thu, 8 Oct 2026 19:38:43 +0800
+Subject: [PATCH] thermal_v2v ICL: cond_latents in WanTransformer3DModel +
+ WanICLDistillationPipeline
+
+---
+ fastvideo/models/wan/transformer.py           | 24 +++++
+ .../training/wan_icl_distillation_pipeline.py | 94 +++++++++++++++++++
+ 2 files changed, 118 insertions(+)
+ create mode 100644 fastvideo/training/wan_icl_distillation_pipeline.py
+
+diff --git a/fastvideo/models/wan/transformer.py b/fastvideo/models/wan/transformer.py
+index 4c9978b8..d61836fb 100644
+--- a/fastvideo/models/wan/transformer.py
++++ b/fastvideo/models/wan/transformer.py
+@@ -796,6 +796,9 @@ class WanTransformer3DModel(BaseDiT):
+                                             compute_dtype=torch.float32)
+         self.proj_out = nn.Linear(inner_dim, config.out_channels * math.prod(config.patch_size))
+         self.scale_shift_table = nn.Parameter(torch.randn(1, 2, inner_dim) / inner_dim**0.5)
++        # thermal_v2v ICL: additive modality embeddings for [cond | target] token streams (loaded from the merged teacher)
++        self.cond_mod_emb = nn.Parameter(torch.zeros(inner_dim))
++        self.tgt_mod_emb = nn.Parameter(torch.zeros(inner_dim))
+ 
+         self.gradient_checkpointing = False
+         self.__post_init__()
+@@ -808,7 +811,12 @@ class WanTransformer3DModel(BaseDiT):
+                 | None = None,
+                 guidance=None,
+                 r_timestep: torch.Tensor | None = None,
++                cond_latents: torch.Tensor | None = None,
+                 **kwargs) -> torch.Tensor:
++        """cond_latents (thermal_v2v ICL): clean condition latents [B,C,F,H,W] with the target's shape. They are
++        patchified with the same patch embedding and prepended as [cond | target] tokens; cond tokens get
++        timestep 0 and the SAME 3D RoPE positions as the target tokens; only target predictions are returned.
++        Requires sp_size == 1 and batch size 1 (per-token timestep path)."""
+         orig_dtype = hidden_states.dtype
+         if encoder_hidden_states is not None and not isinstance(encoder_hidden_states, torch.Tensor):
+             encoder_hidden_states = encoder_hidden_states[0]
+@@ -836,6 +844,20 @@ class WanTransformer3DModel(BaseDiT):
+         hidden_states = self.patch_embedding(hidden_states)
+         hidden_states = hidden_states.flatten(2).transpose(1, 2)
+ 
++        n_tgt = None
++        if cond_latents is not None:
++            assert get_sp_world_size() == 1, "ICL cond_latents requires sp_size == 1"
++            n_tgt = hidden_states.shape[1]
++            cond_tok = self.patch_embedding(cond_latents.to(hidden_states.dtype)).flatten(2).transpose(1, 2)
++            hidden_states = torch.cat([cond_tok + self.cond_mod_emb.to(hidden_states.dtype),
++                                       hidden_states + self.tgt_mod_emb.to(hidden_states.dtype)], dim=1)
++            freqs_cis = (torch.cat([freqs_cis[0], freqs_cis[0]], 0), torch.cat([freqs_cis[1], freqs_cis[1]], 0))
++            t_tgt = timestep.reshape(batch_size, -1)
++            if t_tgt.shape[1] == 1:
++                t_tgt = t_tgt.expand(batch_size, n_tgt)
++            assert t_tgt.shape[1] == n_tgt, f"per-token timestep {tuple(t_tgt.shape)} vs {n_tgt} target tokens"
++            timestep = torch.cat([torch.zeros_like(t_tgt), t_tgt], dim=1)
++
+         # Shard with padding support - returns (sharded_tensor, original_seq_len)
+         hidden_states, original_seq_len = sequence_model_parallel_shard(hidden_states, dim=1)
+ 
+@@ -903,6 +925,8 @@ class WanTransformer3DModel(BaseDiT):
+ 
+         # Gather and unpad in one operation
+         hidden_states = sequence_model_parallel_all_gather_with_unpad(hidden_states, original_seq_len, dim=1)
++        if n_tgt is not None:
++            hidden_states = hidden_states[:, -n_tgt:]
+         hidden_states = self.proj_out(hidden_states)
+ 
+         hidden_states = hidden_states.reshape(batch_size, post_patch_num_frames, post_patch_height, post_patch_width,
+diff --git a/fastvideo/training/wan_icl_distillation_pipeline.py b/fastvideo/training/wan_icl_distillation_pipeline.py
+new file mode 100644
+index 00000000..f29d3f3b
+--- /dev/null
++++ b/fastvideo/training/wan_icl_distillation_pipeline.py
+@@ -0,0 +1,94 @@
++# SPDX-License-Identifier: Apache-2.0
++"""thermal_v2v: Wan2.2-TI2V-5B DMD2 distillation for in-context (ICL) video-to-video translation.
++
++Same DMD2 loop as WanDistillationPipeline; only the data/conditioning plumbing changes:
++  * parquet rows carry an extra `cond_latent_{bytes,shape,dtype}` column (raw VAE mean of the RGB condition video);
++  * the condition latent is Wan-normalised like the target and passed as `cond_latents` to EVERY student / teacher /
++    critic forward through `_build_distill_input_kwargs` (the patched WanTransformer3DModel prepends it as clean
++    t=0 tokens with shared RoPE);
++  * the teacher's guidance is on the CONDITION VIDEO (as in our SFT: null condition = zeros), so the
++    "unconditional" branch keeps the text prompt and zeroes `cond_latents`;
++  * the text-to-video validation pipeline is disabled (we evaluate with our own V2V sampler).
++"""
++import pyarrow as pa
++import torch
++
++from fastvideo.dataset.dataloader.schema import pyarrow_schema_t2v
++from fastvideo.logger import init_logger
++from fastvideo.training.training_pipeline import TrainingBatch
++from fastvideo.training.training_utils import normalize_dit_input
++from fastvideo.training.wan_distillation_pipeline import WanDistillationPipeline
++
++logger = init_logger(__name__)
++
++pyarrow_schema_icl = pa.schema(
++    list(pyarrow_schema_t2v) + [
++        pa.field("cond_latent_bytes", pa.binary()),
++        pa.field("cond_latent_shape", pa.list_(pa.int64())),
++        pa.field("cond_latent_dtype", pa.string()),
++    ])
++
++_NULL_COND = "_icl_null_cond"
++
++
++class WanICLDistillationPipeline(WanDistillationPipeline):
++
++    def set_schemas(self) -> None:
++        self.train_dataset_schema = pyarrow_schema_icl
++
++    def initialize_validation_pipeline(self, training_args):
++        logger.info("ICL distillation: T2V validation pipeline disabled (use thermal_v2v infer for V2V eval)")
++        self.validation_pipeline = None
++
++    def _get_next_batch(self, training_batch: TrainingBatch) -> TrainingBatch:
++        """Same as DistillationPipeline._get_next_batch (non-simulate branch kept for the target latent, which is
++        only used by the non-simulated generator path) plus the condition latent column."""
++        with self.tracker.timed("timing/get_next_batch"):
++            batch = next(self.train_loader_iter, None)  # type: ignore
++            if batch is None:
++                self.current_epoch += 1
++                self.train_loader_iter = iter(self.train_dataloader)
++                batch = next(self.train_loader_iter)
++            device, dtype = self.device, torch.bfloat16
++            T = self.training_args.num_latent_t
++            if self.training_args.simulate_generator_forward:
++                latents = torch.zeros_like(batch["vae_latent"][:, :, :T]).to(device, dtype=dtype)
++            else:
++                latents = batch["vae_latent"][:, :, :T].to(device, dtype=dtype)
++            training_batch.latents = latents
++            training_batch.cond_latents = batch["cond_latent"][:, :, :T].to(device, dtype=dtype)
++            training_batch.encoder_hidden_states = batch["text_embedding"].to(device, dtype=dtype)
++            training_batch.encoder_attention_mask = batch["text_attention_mask"].to(device, dtype=dtype)
++            training_batch.infos = batch["info_list"]
++        return training_batch
++
++    def _normalize_dit_input(self, training_batch: TrainingBatch) -> TrainingBatch:
++        training_batch = super()._normalize_dit_input(training_batch)
++        training_batch.cond_latents = normalize_dit_input('wan', training_batch.cond_latents, self.get_module("vae"))
++        return training_batch
++
++    def _prepare_dit_inputs(self, training_batch: TrainingBatch) -> TrainingBatch:
++        training_batch = super()._prepare_dit_inputs(training_batch)
++        # CFG on the condition video: same text, zeroed condition latents
++        uncond = dict(training_batch.conditional_dict)
++        uncond[_NULL_COND] = True
++        training_batch.unconditional_dict = uncond
++        return training_batch
++
++    def _build_distill_input_kwargs(self, noise_input, timestep, text_dict, training_batch):
++        training_batch = super()._build_distill_input_kwargs(noise_input, timestep, text_dict, training_batch)
++        cond = training_batch.cond_latents
++        if text_dict is not None and text_dict.get(_NULL_COND, False):
++            cond = torch.zeros_like(cond)
++        training_batch.input_kwargs["cond_latents"] = cond
++        return training_batch
++
++
++if __name__ == "__main__":
++    from fastvideo.training.runner import main
++    from fastvideo.utils import build_parser
++
++    parser = build_parser("WanICLDistillationPipeline", "fastvideo.training.wan_icl_distillation_pipeline")
++    args = parser.parse_args()
++    args.dit_cpu_offload = False
++    main(args)
+-- 
+2.52.0
+
