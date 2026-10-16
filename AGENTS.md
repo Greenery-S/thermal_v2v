@@ -113,6 +113,15 @@ bash scripts/data/encode_all.sh all          # one process per local GPU; multi-
 
 Logs are in `latents/logs/`; grep them for `Error`.
 
+Then run the round-trip check. It decodes one clip per latent dir back to pixels and compares it with the raw frames:
+
+```bash
+$PY scripts/data/check_latents.py --out $THERMAL_RUNS/check_latents $THERMAL_DATA/latents/*/train $THERMAL_DATA/latents/*/val
+```
+
+It must print `ALL OK`. Look at `$THERMAL_RUNS/check_latents/*.png` (raw RGB | decoded RGB | raw thermal | decoded
+thermal); the pairs must line up.
+
 ## 6. S4 · Stage 1: bidirectional teacher → models ① ②
 
 ```bash
