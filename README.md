@@ -3,6 +3,9 @@
 RGB ↔ passive-thermal (LWIR) video translation with a video diffusion transformer (Wan2.2-TI2V-5B), plus a streaming
 (autoregressive) RGB → thermal model.
 
+**Running this with an AI coding agent?** Point it at [`AGENTS.md`](AGENTS.md): it is a step-by-step runbook with a
+check after every step and a list of what to report back.
+
 The model is conditioned in-context, by token concatenation: the clean condition video and the noisy target video
 form one token sequence and share 3D RoPE positions. There is no ControlNet and no VACE.
 
@@ -24,7 +27,7 @@ are not verified yet.
 
 The few-step streaming model continues from ④ in two steps, both still in progress on our side and not part of this
 hand-off:
-- **⑤ Self-forcing DMD (21-pair window).**
+- **⑤ Self-forcing DMD (rollouts within one attention window).**
   - The student rolls out with its own history.
   - A fresh LoRA is distilled from the bidirectional teacher.
   - Prototype: single-direction plain-LoRA teacher, TartanRGBT only, 1×H200. At step 100 it reached the 30-step AR

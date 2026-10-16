@@ -1,7 +1,7 @@
 From 59cd356ff4633386271c4e4818700a608ee0a8ac Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 8 Oct 2026 19:38:43 +0800
-Subject: [PATCH 1/2] thermal_v2v ICL: cond_latents in WanTransformer3DModel +
+Subject: [PATCH 1/4] thermal_v2v ICL: cond_latents in WanTransformer3DModel +
  WanICLDistillationPipeline
 
 ---
@@ -174,7 +174,7 @@ index 00000000..f29d3f3b
 From bcd6843d6e38b2d82513eae283ad6b730e0268fd Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 19:40:09 +0800
-Subject: [PATCH 2/2] thermal_v2v ICL: timed V2V eval (mp4 + metrics, wandb) in
+Subject: [PATCH 2/4] thermal_v2v ICL: timed V2V eval (mp4 + metrics, wandb) in
  place of the T2V validation
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -269,6 +269,78 @@ index f29d3f3b..8fd2b3d3 100644
      def _get_next_batch(self, training_batch: TrainingBatch) -> TrainingBatch:
          """Same as DistillationPipeline._get_next_batch (non-simulate branch kept for the target latent, which is
          only used by the non-simulated generator path) plus the condition latent column."""
+-- 
+2.52.0
+
+
+From f1344f9f7ea8878cd08e0482bbafb00334c22019 Mon Sep 17 00:00:00 2001
+From: Yan Keyu <yky@hopper-l-02.cm.cluster>
+Date: Fri, 16 Oct 2026 19:59:07 +0800
+Subject: [PATCH 3/4] eval: dmd steps from pipeline_config
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ fastvideo/training/wan_icl_distillation_pipeline.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/fastvideo/training/wan_icl_distillation_pipeline.py b/fastvideo/training/wan_icl_distillation_pipeline.py
+index 8fd2b3d3..1445cf32 100644
+--- a/fastvideo/training/wan_icl_distillation_pipeline.py
++++ b/fastvideo/training/wan_icl_distillation_pipeline.py
+@@ -69,7 +69,8 @@ class WanICLDistillationPipeline(WanDistillationPipeline):
+         vae = self.get_module("vae")
+         mean = torch.tensor(vae.latents_mean).view(1, -1, 1, 1, 1).to(self.device)
+         std = torch.tensor(vae.latents_std).view(1, -1, 1, 1, 1).to(self.device)
+-        sig = [float(v) / 1000.0 for v in str(training_args.dmd_denoising_steps).split(",")]
++        steps = training_args.pipeline_config.dmd_denoising_steps
++        sig = [float(v) / 1000.0 for v in (steps.split(",") if isinstance(steps, str) else steps)]
+         dec_vae = None
+         if rank0:
+             from diffusers import AutoencoderKLWan
+-- 
+2.52.0
+
+
+From a2c56a85f8754cb21baaad036929eb926e04731c Mon Sep 17 00:00:00 2001
+From: Yan Keyu <yky@hopper-l-02.cm.cluster>
+Date: Fri, 16 Oct 2026 20:03:22 +0800
+Subject: [PATCH 4/4] eval: forward context + long timesteps like the DMD
+ generator forward
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ fastvideo/training/wan_icl_distillation_pipeline.py | 9 ++++++---
+ 1 file changed, 6 insertions(+), 3 deletions(-)
+
+diff --git a/fastvideo/training/wan_icl_distillation_pipeline.py b/fastvideo/training/wan_icl_distillation_pipeline.py
+index 1445cf32..a2705252 100644
+--- a/fastvideo/training/wan_icl_distillation_pipeline.py
++++ b/fastvideo/training/wan_icl_distillation_pipeline.py
+@@ -14,6 +14,7 @@ import pyarrow as pa
+ import torch
+ 
+ from fastvideo.dataset.dataloader.schema import pyarrow_schema_t2v
++from fastvideo.forward_context import set_forward_context
+ from fastvideo.logger import init_logger
+ from fastvideo.training.training_pipeline import TrainingBatch
+ from fastvideo.training.training_utils import normalize_dit_input
+@@ -91,9 +92,11 @@ class WanICLDistillationPipeline(WanDistillationPipeline):
+             g = torch.Generator(device=self.device).manual_seed(1234 + fi)
+             x = torch.randn(cond.shape, generator=g, device=self.device, dtype=torch.float32)
+             for k, sg in enumerate(sig):
+-                with torch.autocast("cuda", dtype=torch.bfloat16):
+-                    v = transformer(hidden_states=x.to(torch.bfloat16), encoder_hidden_states=pe,
+-                                    timestep=torch.tensor([sg * 1000.0], device=self.device),
++                ts = torch.tensor([int(round(sg * 1000.0))], device=self.device, dtype=torch.long)
++                # same call as the DMD generator forward: inside a forward context, SDPA backend -> no attn metadata
++                with torch.autocast("cuda", dtype=torch.bfloat16), \
++                        set_forward_context(current_timestep=ts, attn_metadata=None):
++                    v = transformer(hidden_states=x.to(torch.bfloat16), encoder_hidden_states=pe, timestep=ts,
+                                     encoder_attention_mask=mask, cond_latents=cond, return_dict=False)
+                 v = (v[0] if isinstance(v, (tuple, list)) else v).float()
+                 x0 = x - sg * v
 -- 
 2.52.0
 

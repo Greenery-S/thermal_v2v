@@ -8,8 +8,8 @@ digraph G {
   R2T [label="② bidirectional multi-step\nRGB → thermal", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
   FS  [label="③ bidirectional 3-step RGB → thermal\n(stage 1b, FastVideo DMD)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
   AR  [label="④ streaming AR multi-step RGB → thermal\n(stage 2, LongLive teacher forcing)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
-  SF  [label="⑤ streaming AR 4-step RGB → thermal\nself-forcing DMD, 21-pair window\nin progress: prototype trained", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", penwidth=2];
-  LR  [label="⑥ streaming AR 4-step RGB → thermal, long video\nlong-rollout tuning: student rolls out up to 81 pairs (~32 s),\nteacher scores the last 21 pairs (~8 s)\nin progress: training started", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", penwidth=2];
+  SF  [label="⑤ streaming AR 4-step RGB → thermal\nself-forcing DMD within one attention window\nin progress: prototype trained", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", penwidth=2];
+  LR  [label="⑥ streaming AR 4-step RGB → thermal, long video\nlong-rollout tuning: student rolls out far past the attention window,\nteacher scores only the last window\nin progress: training started", fillcolor="#fff3e0", color="#ef6c00", style="rounded,filled,dashed", penwidth=2];
   D -> B; B -> T2R; B -> R2T; R2T -> FS; R2T -> AR;
   AR -> SF [style=dashed]; SF -> LR [style=dashed];
   subgraph cluster_legend { label=""; color="white";

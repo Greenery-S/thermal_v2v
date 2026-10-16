@@ -110,9 +110,12 @@ def log_eval_clip(out_dir: str, step: int, tag: str, cond, pred, gt, run=None, f
     with open(os.path.join(out_dir, "eval_log.jsonl"), "a") as f:
         f.write(json.dumps(rec) + "\n")
     if run is not None:
-        import wandb
-        run.log({f"eval/{tag}/video": wandb.Video(frames.transpose(0, 3, 1, 2), fps=fps, format="mp4"),
-                 **{f"eval/{tag}/{k}": v for k, v in m.items()}}, step=int(step))
+        try:  # the mp4 file itself (raw frames would need moviepy); wandb trouble never stops training
+            import wandb
+            run.log({f"eval/{tag}/video": wandb.Video(path, format="mp4"),
+                     **{f"eval/{tag}/{k}": v for k, v in m.items()}}, step=int(step))
+        except Exception as e:
+            print(f"[eval] wandb log failed ({e!r}); local mp4 + eval_log.jsonl are written", flush=True)
     print(f"[eval] step {step} {tag}: " + " ".join(f"{k}={v:.3f}" for k, v in m.items()) + f" -> {path}", flush=True)
     return m
 
