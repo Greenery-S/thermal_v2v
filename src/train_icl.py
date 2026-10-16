@@ -192,7 +192,8 @@ def main():
     cfg = OmegaConf.merge(OmegaConf.load(args.config), OmegaConf.from_cli(extras))
 
     use_cuda = torch.cuda.is_available()
-    dist.init_process_group("nccl" if use_cuda else "gloo")
+    import datetime  # long timeout: rank 0 runs the in-training sample eval while the other ranks wait at a barrier
+    dist.init_process_group("nccl" if use_cuda else "gloo", timeout=datetime.timedelta(minutes=90))
     rank, world = dist.get_rank(), dist.get_world_size()
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
     device = torch.device("cuda", local_rank) if use_cuda else torch.device("cpu")
@@ -212,12 +213,24 @@ def main():
         OmegaConf.save(cfg, os.path.join(out_dir, "config.yaml"))
     dist.barrier()
     log_f = open(os.path.join(out_dir, "train_log.jsonl"), "a") if is_main else None
+    from tools.eval_video import EvalTimer, log_eval_clip, wandb_init
+    wb = (wandb_init(str(cfg.get("wandb_project", "thermal_v2v")), os.path.basename(out_dir.rstrip("/")),
+                     os.path.join(out_dir, "wandb"), OmegaConf.to_container(cfg, resolve=True))
+          if is_main and not bool(cfg.get("debug_tiny", False)) else None)
 
     def log(msg, **kv):
         if is_main:
             print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
             if kv:
                 log_f.write(json.dumps(kv) + "\n"); log_f.flush()
+                if wb is not None and "step" in kv:  # same numbers to wandb (nested dicts flattened)
+                    flat = {}
+                    for k, v in kv.items():
+                        if isinstance(v, dict):
+                            flat.update({f"{k}/{kk}": vv for kk, vv in v.items()})
+                        elif isinstance(v, (int, float)) and k != "step":
+                            flat[f"train/{k}"] = v
+                    wb.log(flat, step=int(kv["step"]))
 
     # ---- text embeddings (fixed prompts)
     pc_path = os.path.join(out_dir, "prompt_embeds.pt")
@@ -399,6 +412,48 @@ def main():
         dist.all_reduce(flag, op=dist.ReduceOp.MAX)  # all ranks must agree
         return flag.item() > 0
 
+    # ---- in-training sample eval: every eval_every_minutes, a few fixed val clips per direction -> mp4 + metrics
+    eval_timer = EvalTimer(float(cfg.training.get("eval_every_minutes", 60)), bool(cfg.training.get("eval_at_start", True)))
+    eval_state = {}
+
+    @torch.no_grad()
+    def sample_eval(at_step):
+        if tiny:
+            return
+        if is_main:
+            from diffusers import AutoencoderKLWan
+            if "vae" not in eval_state:
+                eval_state["vae"] = AutoencoderKLWan.from_pretrained(cfg.model_dir, subfolder="vae", torch_dtype=torch.float32).to(device).eval()
+            vae = eval_state["vae"]
+            n = int(cfg.training.get("eval_clips", 2))
+            files = val_ds.files[:: max(1, len(val_ds.files) // n)][:n]
+            ev_sched = FlowMatchScheduler(shift=float(cfg.training.flow_shift), sigma_min=0.0, extra_one_step=True)
+            ev_sched.set_timesteps(int(cfg.training.get("eval_steps", 30)))
+            gscale = float(cfg.training.get("eval_cfg", 2.0))
+            system.eval()
+            dec = lambda z: vae.decode((z.float() * lat_std + lat_mean)).sample[0].float().clamp(-1, 1).permute(1, 0, 2, 3).cpu().numpy()
+            for fi, f in enumerate(files):
+                item = val_ds[val_ds.files.index(f)]
+                for d in [x for x in ("rgb2thermal", "thermal2rgb") if float(cfg.directions.get(x, 0)) > 0]:
+                    cm, tm = DIRECTIONS[d]
+                    batch = {k: ([item[k]] if not torch.is_tensor(item[k]) else item[k][None]) for k in item}
+                    text = text_for(batch, d, train=False)
+                    cond = norm(batch[cm]).to(weight_dtype)
+                    g = torch.Generator(device=device).manual_seed(1234 + fi)
+                    x = torch.randn(cond.shape, generator=g, device=device, dtype=torch.float32)
+                    for t in ev_sched.timesteps:
+                        tt = t.view(1).to(device)
+                        with torch.autocast("cuda", dtype=weight_dtype, enabled=use_cuda):
+                            vc = system(x.to(weight_dtype), cond, tt, text, cm, tm).float()
+                            vu = system(x.to(weight_dtype), torch.zeros_like(cond), tt, text, cm, tm).float() if gscale != 1.0 else vc
+                        x = ev_sched.step(vu + gscale * (vc - vu), t, x)
+                    log_eval_clip(os.path.join(out_dir, "eval"), at_step, f"{d}/clip{fi}",
+                                  dec(norm(batch[cm])), dec(x), dec(norm(batch[tm])), run=wb,
+                                  extra={"file": os.path.basename(f)}, thermal_target=(tm == "thermal"))
+            system.train()
+            torch.cuda.empty_cache()
+        dist.barrier()
+
     def save_ckpt(tag_step):
         if is_main:
             ck = {"step": tag_step, "trainable": trainable_state(system, cfg), "optimizer": opt.state_dict(), "config": OmegaConf.to_container(cfg)}
@@ -459,6 +514,8 @@ def main():
                     step=step, direction=direction, loss=loss_acc, ema=ema_loss, grad_norm=float(gn), lr=lr_at(step - 1), elapsed=el)
             if step % int(cfg.training.val_every) == 0:
                 vl = validate(); log(f"val @ {step}: {vl}", step=step, val=vl)
+            if eval_timer.due():
+                sample_eval(step)
             if step % int(cfg.training.save_every) == 0 or step >= total:
                 save_ckpt(step)
             if step >= total:

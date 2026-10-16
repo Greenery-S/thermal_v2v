@@ -6,14 +6,46 @@ RGB ↔ passive-thermal (LWIR) video translation with a video diffusion transfor
 The model is conditioned in-context, by token concatenation: the clean condition video and the noisy target video
 form one token sequence and share 3D RoPE positions. There is no ControlNet and no VACE.
 
+Model tree. Solid green: included in this repository and smoke-tested end to end. Dashed orange: in progress on our
+side, not part of this hand-off.
+
+![model tree](assets/model_tree.png)
+
+(Source: `assets/model_tree.dot`; render with graphviz `dot -Tpng`.)
+
+① and ② come from the same stage-1 LoRA; the task sentence of the caption selects the direction. ① ends there.
+
+③ and ④ start from the merged rgb→thermal view of that LoRA:
+- stages 1 and 1b use all three sources (33-frame clips; LLVIP stills as static clips);
+- stage 2 uses the video sources only (TartanRGBT + KAIST, 81-frame clips).
+
+"Smoke-tested" means the full chain ran on one GPU with a few clips per source. Full-scale runs and their quality
+are not verified yet.
+
+The few-step streaming model continues from ④ in two steps, both still in progress on our side and not part of this
+hand-off:
+- **⑤ Self-forcing DMD (21-pair window).**
+  - The student rolls out with its own history.
+  - A fresh LoRA is distilled from the bidirectional teacher.
+  - Prototype: single-direction plain-LoRA teacher, TartanRGBT only, 1×H200. At step 100 it reached the 30-step AR
+    quality at 4 steps on 8 val clips, then plateaued lower.
+- **⑥ Long-rollout tuning of the same LoRA.**
+  - The student rolls out far beyond the attention window (rolling KV cache + a 1-pair frame sink), and the teacher
+    scores only the last 21 pairs.
+  - This targets the slow wash-out seen over minute-long streams.
+  - Training has just started.
+
+The code for both is in the LongLive patch (`configs/thermal/train_dmd_r2t_own.yaml`, `train_dmd_r2t_long.yaml`). The
+recipe is not fixed yet.
+
 Deliverables of this hand-off:
 
 | # | Model | Stage | Code |
 |---|---|---|---|
-| 1 | bidirectional, multi-step, **rgb→thermal** | 1 | `src/train_icl.py` (this repo) |
-| 2 | bidirectional, multi-step, **thermal→rgb** (same LoRA as #1, other task sentence) | 1 | same |
-| 3 | bidirectional, **3-step** rgb→thermal | 1b | hao-ai-lab/FastVideo + `scripts/stage1b/fastvideo_thermal_icl.patch` |
-| 4 | streaming (autoregressive), multi-step rgb→thermal | 2 | NVlabs/LongLive 2.0 + `scripts/stage2/longlive_thermal_v2v.patch` |
+| ① | bidirectional, multi-step, **thermal→rgb** | 1 | `src/train_icl.py` (this repo) |
+| ② | bidirectional, multi-step, **rgb→thermal** (same LoRA as ①, other task sentence) | 1 | same |
+| ③ | bidirectional, **3-step** rgb→thermal | 1b | hao-ai-lab/FastVideo + `scripts/stage1b/fastvideo_thermal_icl.patch` |
+| ④ | streaming (autoregressive), multi-step rgb→thermal | 2 | NVlabs/LongLive 2.0 + `scripts/stage2/longlive_thermal_v2v.patch` |
 
 - **Stage 1:** one LoRA for rgb→thermal, thermal→rgb and joint generation, on 33-frame clips.
 - **Stage 1b:** distils the stage-1 teacher (rgb→thermal) into a 3-step student. This is the phase-1 recipe that
@@ -184,7 +216,35 @@ Reference from the Hopper prototype (single-direction teacher, TartanRGBT only, 
 - streaming 30 steps: pearson 0.69, jump ratio 1.00;
 - bidirectional teacher: pearson 0.72.
 
-## 7. Smoke test (do this first on a new cluster)
+## 7. Monitoring: wandb, local logs, in-training eval videos
+
+All three training stages log the same way:
+
+- **wandb.** The default project is `thermal_v2v`; override it with `WANDB_PROJECT` / `WANDB_ENTITY`.
+  - The run is online when `WANDB_API_KEY` is set or you are logged in.
+  - Otherwise it runs offline inside the run directory; upload it later with `wandb sync <run>/.../wandb/offline-run-*`.
+  - One run id per run directory, so restarts and resumes continue the same curves.
+- **Local logs in the run directory:**
+  - `console.log`: full stdout/stderr;
+  - `train_log.jsonl`: per-step losses, the same numbers as wandb;
+  - `eval/eval_log.jsonl`: one line per eval clip with its metrics.
+- **In-training eval videos.** An eval runs every 60 minutes of wall-clock time, plus once right at the start as the
+  step-0 baseline. It uses the current weights on fixed val clips and writes
+  `eval/step_XXXXXX/<task>/clipN.mp4` ([condition | prediction | real]). It also logs the video and the metrics to
+  wandb at that step:
+  - `pearson`;
+  - `psnr_affine` / `ssim_affine`: per-clip scale/shift-aligned, because the absolute temperature range of a clip
+    is not predictable from RGB;
+  - `gain_db`: improvement over predicting the clip mean;
+  - `jump_ratio`: chunk-seam indicator, ~1 is good.
+
+| Stage | Eval videos | Change the interval with |
+|---|---|---|
+| 1 | rgb→thermal + thermal→rgb, 2 clips each, 30 steps, CFG 2 | `training.eval_every_minutes` (config / CLI override) |
+| 1b | rgb→thermal, 2 clips, the student's 3 steps | `THERMAL_EVAL_MINUTES`, `THERMAL_EVAL_N` |
+| 2 | streaming rgb→thermal, 2 clips, 30 steps | `thermal_eval_minutes`, `thermal_eval_n` in the config |
+
+## 8. Smoke test (do this first on a new cluster)
 
 ```bash
 bash scripts/smoke_test.sh                 # 1 GPU, a few clips per source, ~1.5 h; outputs under $THERMAL_RUNS/smoke
@@ -200,9 +260,10 @@ It runs the whole chain:
 6. stage 2 for 10 iterations (no checkpoint: a full stage-2 checkpoint is ~50 GB);
 7. stage-2 streaming eval.
 
-It only checks the plumbing, not the quality.
+It only checks the plumbing, not the quality. It fails unless every training stage has written its in-training eval
+mp4 and its `eval_log.jsonl`.
 
-## 8. Notes / known pitfalls
+## 9. Notes / known pitfalls
 
 - **Storage:**
   - raw data ~350 GB;

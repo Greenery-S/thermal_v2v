@@ -10,7 +10,7 @@ RUN=${1:-stage2_ar}; shift || true
 LOGDIR=$THERMAL_RUNS/$RUN; mkdir -p "$LOGDIR"
 export LLV2_MODEL_DIR=${LLV2_MODEL_DIR:-$THERMAL_RUNS/stage2_teacher}
 export LLV2_PROMPT_EMBEDS=${LLV2_PROMPT_EMBEDS:-$LLV2_MODEL_DIR/prompt_embeds.pt}
-export THERMAL_V2V_REPO=$REPO WANDB_MODE=${WANDB_MODE:-offline} WANDB_DIR=$LOGDIR
+export THERMAL_V2V_REPO=$REPO WANDB_DIR=$LOGDIR   # wandb: online with WANDB_API_KEY / login, else offline in $LOGDIR
 CFG=${STAGE2_CONFIG:-configs/thermal/stage2_ar.yaml}
 NPROC=${NPROC:-$(nvidia-smi -L | wc -l)}; NNODES=${NNODES:-1}
 if [ "$NNODES" -gt 1 ]; then
@@ -20,5 +20,7 @@ else
 fi
 cd "$LONGLIVE_DIR"
 cp -f "$CFG" "$LOGDIR/config.yaml"
-exec $PY_LL -m torch.distributed.run "${RDZV[@]}" --nproc_per_node "$NPROC" \
-  train.py --config_path "$CFG" --logdir "$LOGDIR" --disable-wandb "$@"
+# full console log next to the run (train_log.jsonl / eval_log.jsonl / eval/*.mp4 are written by the trainer)
+$PY_LL -m torch.distributed.run "${RDZV[@]}" --nproc_per_node "$NPROC" \
+  train.py --config_path "$CFG" --logdir "$LOGDIR" "$@" 2>&1 | tee -a "$LOGDIR/console.log"
+exit ${PIPESTATUS[0]}

@@ -12,5 +12,9 @@ if [ "$NNODES" -gt 1 ]; then
 else
   RDZV=(--standalone --nnodes 1)
 fi
-exec $PY -m torch.distributed.run "${RDZV[@]}" --nproc_per_node "$NPROC" \
-  src/train_icl.py --config ${STAGE1_CONFIG:-configs/stage1/bidir_33f.yaml} "$@"
+# console log appended under the run dir (train_log.jsonl, eval/eval_log.jsonl and eval/*.mp4 come from the trainer;
+# wandb: online with WANDB_API_KEY / `wandb login`, else offline in <run>/wandb)
+LOG=${STAGE1_LOG:-$THERMAL_RUNS/stage1_bidir_33f/console.log}; mkdir -p "$(dirname "$LOG")"
+$PY -m torch.distributed.run "${RDZV[@]}" --nproc_per_node "$NPROC" \
+  src/train_icl.py --config ${STAGE1_CONFIG:-configs/stage1/bidir_33f.yaml} "$@" 2>&1 | tee -a "$LOG"
+exit ${PIPESTATUS[0]}

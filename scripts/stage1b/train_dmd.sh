@@ -13,7 +13,13 @@ DATA=${DATA:-$THERMAL_DATA/fastvideo/rgb2thermal_33f/train}
 OUT=${OUT:-$THERMAL_RUNS/stage1b_dmd3}
 NPROC=${NPROC:-$(nvidia-smi -L | wc -l)}
 mkdir -p "$OUT"
-export FASTVIDEO_ATTENTION_BACKEND=TORCH_SDPA TOKENIZERS_PARALLELISM=false WANDB_MODE=${WANDB_MODE:-offline}
+export FASTVIDEO_ATTENTION_BACKEND=TORCH_SDPA TOKENIZERS_PARALLELISM=false
+# wandb: online with WANDB_API_KEY / login, else offline under $OUT/tracker (wandb sync later)
+[ -z "${WANDB_MODE:-}" ] && { [ -n "${WANDB_API_KEY:-}" ] && export WANDB_MODE=online || export WANDB_MODE=offline; }
+# timed in-training V2V eval (patched _log_validation): mp4 + metrics -> $OUT/eval and wandb, first one at the start
+export THERMAL_V2V_REPO=$REPO THERMAL_EVAL_DIR=${THERMAL_EVAL_DIR:-$THERMAL_DATA/latents/tartanrgbt_33f/val}
+export THERMAL_PROMPT_EMBEDS=${THERMAL_PROMPT_EMBEDS:-$THERMAL_RUNS/stage1_bidir_33f/prompt_embeds.pt}
+export THERMAL_EVAL_MINUTES=${THERMAL_EVAL_MINUTES:-60} THERMAL_EVAL_N=${THERMAL_EVAL_N:-2}
 export TORCH_NCCL_ENABLE_MONITORING=0 PYTHONUNBUFFERED=1
 cd "$FASTVIDEO_DIR"
 ARGS=(
@@ -32,9 +38,13 @@ ARGS=(
   --dmd_denoising_steps '1000,757,522' --min_timestep_ratio 0.02 --max_timestep_ratio 0.98
   --generator_update_interval 5 --real_score_guidance_scale ${GUIDANCE:-1.0}
   --max_train_steps ${MAX_STEPS:-3000}
+  --tracker-project-name ${WANDB_PROJECT:-thermal_v2v} --wandb-run-name "$(basename "$OUT")"
+  --log-validation True --validation-steps 1
 )
 # --real_score_guidance_scale is FastVideo's (cond + w*(cond-uncond)): w=1.0 == CFG 2.0 on the condition video.
 RES=()
 last=$(ls -d "$OUT"/checkpoint-* 2>/dev/null | grep -v weight_only | sort -t- -k2 -n | tail -1 || true)
 [ -n "$last" ] && RES=(--resume_from_checkpoint "$last") && echo "[stage1b] resuming from $last"
-exec $PY_FV -m torch.distributed.run --standalone --nproc_per_node "$NPROC" fastvideo/training/runner.py "${ARGS[@]}" "${RES[@]}" "$@"
+$PY_FV -m torch.distributed.run --standalone --nproc_per_node "$NPROC" fastvideo/training/runner.py "${ARGS[@]}" "${RES[@]}" "$@" \
+  2>&1 | tee -a "$OUT/console.log"
+exit ${PIPESTATUS[0]}

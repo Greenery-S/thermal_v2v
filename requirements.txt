@@ -17,3 +17,4 @@ scikit-image==0.25.2
 lpips==0.1.4
 bitsandbytes==0.50.2
 tqdm
+wandb

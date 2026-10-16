@@ -5,6 +5,7 @@
 # Paths come from the environment (scripts/env.sh): WAN22_5B_DIR, THERMAL_DATA, THERMAL_RUNS.
 # Launch: scripts/stage1/train.sh (torchrun, 1..N nodes). batch_size is PER GPU.
 seed: 42
+wandb_project: thermal_v2v   # online if WANDB_API_KEY is set (or logged in), else offline under <run>/wandb
 model_dir: ${oc.env:WAN22_5B_DIR}
 output_dir: ${oc.env:THERMAL_RUNS}/stage1_bidir_33f
 
@@ -59,6 +60,11 @@ training:
   gradient_checkpointing: true
   log_every: 10
   val_every: 250
+  eval_every_minutes: 60 # in-training sample eval (mp4 + metrics -> <run>/eval and wandb), first one at step 1
+  eval_at_start: true
+  eval_clips: 2          # fixed val clips, each direction (rgb2thermal, thermal2rgb), 30 steps, CFG 2
+  eval_steps: 30
+  eval_cfg: 2.0
   save_every: 250
   keep_ckpts: 4
   resume: true

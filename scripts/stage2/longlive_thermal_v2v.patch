@@ -1,7 +1,7 @@
 From 3235129cfa4a3db153c4614701b7dc453538c520 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 15:51:35 +0800
-Subject: [PATCH 01/39] thermal-v2v: interleaved RGB/thermal conditioning,
+Subject: [PATCH 01/40] thermal-v2v: interleaved RGB/thermal conditioning,
  cached prompts, latent dataset, farm deadline stop
 
 ---
@@ -614,7 +614,7 @@ index 276ff4e..1960684 100644
 From c42c6a420fac8a388866d3893708a0cbb0bfb6ce Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 15:54:44 +0800
-Subject: [PATCH 02/39] thermal-v2v: interleaved clamping in streaming
+Subject: [PATCH 02/40] thermal-v2v: interleaved clamping in streaming
  inference, thermal_eval.py, infer config
 
 ---
@@ -870,7 +870,7 @@ index 0000000..82a318c
 From 860e45bef8f82b082ac8ee9b2a31921392961a8e Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 16:12:17 +0800
-Subject: [PATCH 03/39] CachedTextEncoder: return bf16 embeddings
+Subject: [PATCH 03/40] CachedTextEncoder: return bf16 embeddings
 
 ---
  LongLive2.0/utils/wan_5b_wrapper.py | 4 +++-
@@ -898,7 +898,7 @@ index d9983c6..c8a0193 100644
 From e22f0cef9f8d8e353d544beab0a21bb3e1a74098 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 16:15:51 +0800
-Subject: [PATCH 04/39] thermal_eval: --pairs override
+Subject: [PATCH 04/40] thermal_eval: --pairs override
 
 ---
  LongLive2.0/thermal_eval.py | 3 +++
@@ -928,7 +928,7 @@ index 82a318c..39c3885 100644
 From 532fed537f5014efd5d8a49ab84ce4287315fb5e Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 16:42:38 +0800
-Subject: [PATCH 05/39] inference: fp32 UniPC step for interleaved mode
+Subject: [PATCH 05/40] inference: fp32 UniPC step for interleaved mode
 
 ---
  .../pipeline/causal_diffusion_inference.py     | 18 +++++++++++++-----
@@ -970,7 +970,7 @@ index 326ac9e..ea983cf 100644
 From 44e4f9fa675cf809a3de48b87b8d0af0670195d7 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 17:54:51 +0800
-Subject: [PATCH 06/39] thermal_eval: in-memory LoRA merge (LongLive-Plug) and
+Subject: [PATCH 06/40] thermal_eval: in-memory LoRA merge (LongLive-Plug) and
  --steps
 
 ---
@@ -1048,7 +1048,7 @@ index 39c3885..5784717 100644
 From 02f03156e4fb6573b17fd52ae94272a7d83a0414 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 18:12:07 +0800
-Subject: [PATCH 07/39] thermal-v2v: bf16 snapshots per save, atomic full
+Subject: [PATCH 07/40] thermal-v2v: bf16 snapshots per save, atomic full
  checkpoints, keep 1
 
 ---
@@ -1101,7 +1101,7 @@ index c5a9d84..4792f60 100644
 From a8afc2aa776d80b94c21f1912a2522e6c0869bfd Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 20:43:58 +0800
-Subject: [PATCH 08/39] thermal-v2v: optional optimizer in checkpoints, free
+Subject: [PATCH 08/40] thermal-v2v: optional optimizer in checkpoints, free
  old full ckpt first, snapshot pruning, v2 config (no error recycling)
 
 ---
@@ -1246,7 +1246,7 @@ index 4792f60..1dfad94 100644
 From 8a7cc5be6a47cd35ec3d1f33bb86cad66a3dd42e Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 20:48:08 +0800
-Subject: [PATCH 09/39] thermal-v2v: fsync+atomic saves (NFS defers ENOSPC)
+Subject: [PATCH 09/40] thermal-v2v: fsync+atomic saves (NFS defers ENOSPC)
 
 ---
  LongLive2.0/trainer/diffusion.py | 24 ++++++++++++++++++++----
@@ -1315,7 +1315,7 @@ index 1dfad94..7ca5f3d 100644
 From d560e92ca7a0a16811e8deb2a757af1a64610916 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 22:04:21 +0800
-Subject: [PATCH 10/39] thermal_eval: spread clips across sequences; pearson vs
+Subject: [PATCH 10/40] thermal_eval: spread clips across sequences; pearson vs
  GT/RGB and constant-prediction floor
 
 ---
@@ -1379,7 +1379,7 @@ index 5784717..8e3e503 100644
 From 5cecf700ed1c6121b96fd833988775dc9afc6a25 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 22:27:08 +0800
-Subject: [PATCH 11/39] thermal_eval: --steps also sets
+Subject: [PATCH 11/40] thermal_eval: --steps also sets
  inference.sampling_steps
 
 ---
@@ -1408,7 +1408,7 @@ index 8e3e503..38d0dea 100644
 From d4857864bbc3cf3c4a3c3dc68fb7017395416667 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 22:56:39 +0800
-Subject: [PATCH 12/39] v1 config: no optimizer in checkpoints, keep 3
+Subject: [PATCH 12/40] v1 config: no optimizer in checkpoints, keep 3
  snapshots
 
 ---
@@ -1435,7 +1435,7 @@ index f5a872c..7fa885b 100644
 From c44d4a46e172ec62e9fe80b4ba1d69e4139b50be Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 23:55:41 +0800
-Subject: [PATCH 13/39] thermal_eval: chunk-boundary jump ratio
+Subject: [PATCH 13/40] thermal_eval: chunk-boundary jump ratio
 
 ---
  LongLive2.0/thermal_eval.py | 14 ++++++++++++--
@@ -1483,7 +1483,7 @@ index 38d0dea..ce187fc 100644
 From acf86d759872f7a544d1682b370ece445bd5064e Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 23:56:04 +0800
-Subject: [PATCH 14/39] retire v2 config
+Subject: [PATCH 14/40] retire v2 config
 
 ---
  LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml | 3 ++-
@@ -1514,7 +1514,7 @@ index f7f27bf..968a519 100644
 From 0fa68d89c427b216c4dd3123b1ebea243925b464 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 00:08:24 +0800
-Subject: [PATCH 15/39] bidirectional reference inference config
+Subject: [PATCH 15/40] bidirectional reference inference config
 
 ---
  .../configs/thermal/infer_bidir_r2t.yaml      | 35 +++++++++++++++++++
@@ -1569,7 +1569,7 @@ index 0000000..61a0010
 From b3fa3cc8f8031712b44bf496e44cf61c73477cd2 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 00:09:09 +0800
-Subject: [PATCH 16/39] EMA every N steps (CPU shadow update was ~10 s/step)
+Subject: [PATCH 16/40] EMA every N steps (CPU shadow update was ~10 s/step)
 
 ---
  LongLive2.0/configs/thermal/train_ar_r2t.yaml | 1 +
@@ -1625,7 +1625,7 @@ index 7ca5f3d..a7011cf 100644
 From a9bde1c642ce341a54e878ddb71b75f0f780b608 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 04:05:32 +0800
-Subject: [PATCH 17/39] thermal-v2v: DMD/self-forcing with bidirectional
+Subject: [PATCH 17/40] thermal-v2v: DMD/self-forcing with bidirectional
  teacher (interleaved cond helpers, rollout clamp, null-RGB uncond,
  EMA-snapshot init, Plug LoRA init, deadline stop)
 
@@ -2180,7 +2180,7 @@ index 2a12697..6889840 100644
 From 95f33bb6c80bb5aa2537f6948062c2ed207154a8 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 05:26:12 +0800
-Subject: [PATCH 18/39] smoke DMD config: step-2000 init
+Subject: [PATCH 18/40] smoke DMD config: step-2000 init
 
 ---
  LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml | 2 +-
@@ -2206,7 +2206,7 @@ index fbe3878..1390a06 100644
 From c65fa0fe977f0c92dc8c6ef74ade915838e39a61 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 06:33:45 +0800
-Subject: [PATCH 19/39] thermal_eval: --lora_ckpt for DMD generator LoRA
+Subject: [PATCH 19/40] thermal_eval: --lora_ckpt for DMD generator LoRA
 
 ---
  LongLive2.0/thermal_eval.py | 18 +++++++++++++-----
@@ -2265,7 +2265,7 @@ index ce187fc..7f0d001 100644
 From 80ef1b7830ebdcf0705bdea3dcf58e5f7842a0a7 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 07:26:09 +0800
-Subject: [PATCH 20/39] DMD: start step count at 0 when initialised from an SFT
+Subject: [PATCH 20/40] DMD: start step count at 0 when initialised from an SFT
  snapshot
 
 ---
@@ -2296,7 +2296,7 @@ index f38c093..d11dfef 100644
 From e585efd3e20f6a2b6b02cb3f8b63aa2ab9e880dc Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 09:49:45 +0800
-Subject: [PATCH 21/39] diagnostic: teacher-forced history at inference
+Subject: [PATCH 21/40] diagnostic: teacher-forced history at inference
  (--tf_history)
 
 ---
@@ -2369,7 +2369,7 @@ index 7f0d001..afa51e2 100644
 From c76e61b1775e7643b18dc36e33bc6dfa3d7c642c Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 10:47:03 +0800
-Subject: [PATCH 22/39] FIX: inference wiped interleaved shared-position RoPE
+Subject: [PATCH 22/40] FIX: inference wiped interleaved shared-position RoPE
  offset; DMD rollout fp32 UniPC; DMD uncond = null RGB + same prompt
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2461,7 +2461,7 @@ index 6594167..3296b20 100644
 From 59c4be57523cf28434c82999cbea6047b6a22309 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 11:19:38 +0800
-Subject: [PATCH 23/39] thermal_eval: --files whole-sequence latents,
+Subject: [PATCH 23/40] thermal_eval: --files whole-sequence latents,
  FFC-masked metrics, per-window drift metrics, chunk latency
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2562,7 +2562,7 @@ index afa51e2..314aa5c 100644
 From 843168adffc4cfb628fdb3d23587a045e379f872 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 11:23:19 +0800
-Subject: [PATCH 24/39] DMD config: own few-step LoRA from scratch (no Plug
+Subject: [PATCH 24/40] DMD config: own few-step LoRA from scratch (no Plug
  init)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2694,7 +2694,7 @@ index 0000000..59d166e
 From 432f7ad43d2a26e790aa380985d5e8eb83b10667 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 14:09:58 +0800
-Subject: [PATCH 25/39] infer config: frame-sink variant
+Subject: [PATCH 25/40] infer config: frame-sink variant
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -2752,7 +2752,7 @@ index 0000000..6e54c01
 From bb6edea89b4f67465631b0068e6bdfc924254bd8 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 15:00:32 +0800
-Subject: [PATCH 26/39] DMD LoRA mode: EMA of the generator LoRA
+Subject: [PATCH 26/40] DMD LoRA mode: EMA of the generator LoRA
  (generator_lora_ema); thermal_eval uses it by default
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2897,7 +2897,7 @@ index d11dfef..c9c9268 100644
 From 7e36c8551280b1a148200ccf382f3d12f36011ea Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 15:02:49 +0800
-Subject: [PATCH 27/39] DMD long-rollout tuning: interleave-aware slicing (RGB
+Subject: [PATCH 27/40] DMD long-rollout tuning: interleave-aware slicing (RGB
  view for loss helpers), long config + smoke
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3259,7 +3259,7 @@ index 6889840..d3545a6 100644
 From 295773dc7b7ad686cc351cd0a16910f2a656feb3 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 15:02:59 +0800
-Subject: [PATCH 28/39] smoke long: max_iters after resume step
+Subject: [PATCH 28/40] smoke long: max_iters after resume step
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -3287,7 +3287,7 @@ index 10cc029..f41940e 100644
 From 31e38f01aedce28d31d4ccdbe36c899c59329ec7 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 16:09:15 +0800
-Subject: [PATCH 29/39] long DMD: 162-frame rollouts on Hopper, lora_ckpt via
+Subject: [PATCH 29/40] long DMD: 162-frame rollouts on Hopper, lora_ckpt via
  best.pt
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3341,7 +3341,7 @@ index 261d052..c2c0a5f 100644
 From 78a0e389003dff8a4cca1651d41ce0b9b3d0d728 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 16:53:37 +0800
-Subject: [PATCH 30/39] LoraEMA: define after imports (NameError: torch)
+Subject: [PATCH 30/40] LoraEMA: define after imports (NameError: torch)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -3425,7 +3425,7 @@ index c9c9268..9f18d1e 100644
 From 2005eb8afe7f9a09d4023071088bd02663425458 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 17:24:52 +0800
-Subject: [PATCH 31/39] long-rollout DMD: compact rolling KV cache before the
+Subject: [PATCH 31/40] long-rollout DMD: compact rolling KV cache before the
  gradient region (checkpoint recompute mismatch)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3485,7 +3485,7 @@ index 3296b20..3478b34 100644
 From bdaf78f6973f9e0b6aad4e5d75baef3c3c438735 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 17:25:06 +0800
-Subject: [PATCH 32/39] trainer: re-raise after logging a crash (non-zero exit
+Subject: [PATCH 32/40] trainer: re-raise after logging a crash (non-zero exit
  for the farm)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3513,7 +3513,7 @@ index 9f18d1e..eb67b23 100644
 From 167f1137e07a293256ba3d5d00f3a3eec2a6f29d Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:13:18 +0800
-Subject: [PATCH 33/39] structured captions: per-file rgb2thermal caption from
+Subject: [PATCH 33/40] structured captions: per-file rgb2thermal caption from
  latent metadata (thermal_prompt: structured)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3602,7 +3602,7 @@ index f7b14f0..eab5431 100644
 From 6dc3cb1fe393035304e6adb4b25a0da5bd0adab2 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:22:12 +0800
-Subject: [PATCH 34/39] self-forcing rollout: keep attention overrides for the
+Subject: [PATCH 34/40] self-forcing rollout: keep attention overrides for the
  checkpoint recompute in backward
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3635,7 +3635,7 @@ index 3478b34..266ba3a 100644
 From 7e9e2cc5449b81af78b180e8be0b490e405f5869 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:46:23 +0800
-Subject: [PATCH 35/39] stage-2 configs: env paths, multi-source 81f data,
+Subject: [PATCH 35/40] stage-2 configs: env paths, multi-source 81f data,
  structured captions; multi-dir thermal dataset
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3856,7 +3856,7 @@ index eab5431..f9b22cb 100644
 From 5dd579dfe83311a5c8f991cc8ef72cce2106b4f0 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:47:58 +0800
-Subject: [PATCH 36/39] stage-2 smoke config
+Subject: [PATCH 36/40] stage-2 smoke config
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -3972,7 +3972,7 @@ index 0000000..5eb7add
 From 2f4d2f93658575e66c52abc4f632484ae02a3b25 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 18:50:20 +0800
-Subject: [PATCH 37/39] stage-2 smoke: no checkpoint
+Subject: [PATCH 37/40] stage-2 smoke: no checkpoint
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -4006,7 +4006,7 @@ index 5eb7add..c3d63dd 100644
 From 77c965029ee63df7af5adf48cbdd75a1c855a44d Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 18:50:32 +0800
-Subject: [PATCH 38/39] stage-2 smoke: no_save
+Subject: [PATCH 38/40] stage-2 smoke: no_save
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -4033,7 +4033,7 @@ index c3d63dd..5f37ac9 100644
 From d7a10aeab13289f66a2e0e4288f47746950027ee Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:52:33 +0800
-Subject: [PATCH 39/39] captions: load thermal_v2v captions.py by path (name
+Subject: [PATCH 39/40] captions: load thermal_v2v captions.py by path (name
  clash with HF datasets)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -4082,6 +4082,212 @@ index f9b22cb..4ac2e54 100644
      with safe_open(path, "pt") as fh:
          meta = json.loads((fh.metadata() or {}).get("meta", "{}"))
      return caption("rgb2thermal", meta.get("sensor", "radiometric"), meta.get("media", "video"))
+-- 
+2.52.0
+
+
+From 140727ea1851deb81c3d1721a689becbc2b094d9 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 19:39:05 +0800
+Subject: [PATCH 40/40] AR trainer: wandb online/offline by env, local
+ train_log.jsonl, timed thermal streaming eval (mp4 + metrics)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/configs/thermal/stage2_ar.yaml    |  7 +-
+ .../configs/thermal/stage2_ar_smoke.yaml      |  7 +-
+ LongLive2.0/trainer/diffusion.py              | 90 +++++++++++++++++--
+ 3 files changed, 97 insertions(+), 7 deletions(-)
+
+diff --git a/LongLive2.0/configs/thermal/stage2_ar.yaml b/LongLive2.0/configs/thermal/stage2_ar.yaml
+index e52967f..8cc39f3 100644
+--- a/LongLive2.0/configs/thermal/stage2_ar.yaml
++++ b/LongLive2.0/configs/thermal/stage2_ar.yaml
+@@ -74,7 +74,7 @@ data:
+   load_raw_video: false
+ 
+ inference:
+-  sampling_steps: 50
++  sampling_steps: 30      # used by the in-training thermal eval
+   sink_size: 0
+   guidance_scale: 1.0
+   independent_first_frame: false
+@@ -82,6 +82,11 @@ inference:
+ 
+ evaluation:
+   interval: 0
++  # thermal-v2v: timed streaming eval with the current weights (mp4 + metrics -> <logdir>/eval, wandb); first at step 1
++  thermal_eval_dir: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/val
++  thermal_eval_minutes: 60
++  thermal_eval_at_start: true
++  thermal_eval_n: 2
+   num_frames: 42
+   use_ema: true
+   val_batch_size: 1
+diff --git a/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml b/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+index 5f37ac9..d6e5bb0 100644
+--- a/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
++++ b/LongLive2.0/configs/thermal/stage2_ar_smoke.yaml
+@@ -76,7 +76,7 @@ data:
+   load_raw_video: false
+ 
+ inference:
+-  sampling_steps: 50
++  sampling_steps: 4      # used by the in-training thermal eval
+   sink_size: 0
+   guidance_scale: 1.0
+   independent_first_frame: false
+@@ -84,6 +84,11 @@ inference:
+ 
+ evaluation:
+   interval: 0
++  # thermal-v2v: timed streaming eval with the current weights (mp4 + metrics -> <logdir>/eval, wandb); first at step 1
++  thermal_eval_dir: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/val
++  thermal_eval_minutes: 60
++  thermal_eval_at_start: true
++  thermal_eval_n: 1
+   num_frames: 42
+   use_ema: true
+   val_batch_size: 1
+diff --git a/LongLive2.0/trainer/diffusion.py b/LongLive2.0/trainer/diffusion.py
+index a7011cf..38f1e15 100644
+--- a/LongLive2.0/trainer/diffusion.py
++++ b/LongLive2.0/trainer/diffusion.py
+@@ -2,6 +2,8 @@
+ # SPDX-License-Identifier: Apache-2.0
+ 
+ import gc
++import glob
++import json
+ import logging
+ import types
+ 
+@@ -23,6 +25,23 @@ from torch.distributed.fsdp import (
+     StateDictType, FullStateDictConfig, FullOptimStateDictConfig
+ )
+ 
++_EV = None
++
++
++def _ev_module():
++    """thermal_v2v tools/eval_video.py, loaded by path ($THERMAL_V2V_REPO)."""
++    global _EV
++    if _EV is None:
++        import importlib.util
++        repo = os.environ.get("THERMAL_V2V_REPO")
++        if not repo:
++            raise RuntimeError("thermal_eval_dir is set but THERMAL_V2V_REPO is not")
++        spec = importlib.util.spec_from_file_location("thermal_v2v_eval_video", os.path.join(repo, "tools", "eval_video.py"))
++        _EV = importlib.util.module_from_spec(spec)
++        spec.loader.exec_module(_EV)
++    return _EV
++
++
+ def save_prompts_to_txt(prompts_for_sample, prompt_txt_path: str, is_main_process: bool):
+     """
+     Save prompts for one generated video to a txt file.
+@@ -99,13 +118,18 @@ class Trainer:
+         if self.is_main_process and not self.disable_wandb:
+             if getattr(config, "wandb_key", None):
+                 wandb.login(host=config.wandb_host, key=config.wandb_key)
++            # thermal-v2v: online with a key / login, else offline under the logdir (wandb sync later); one run per
++            # logdir, resumed across restarts
++            _name = os.path.basename(str(config.logdir).rstrip("/")) or config.config_name
+             wandb.init(
+                 config=OmegaConf.to_container(config, resolve=True),
+-                name=config.config_name,
+-                mode="online",
+-                entity=config.wandb_entity,
+-                project=config.wandb_project,
+-                dir=config.wandb_save_dir
++                name=_name,
++                id=os.environ.get("WANDB_RUN_ID") or _name,
++                resume="allow",
++                mode=os.environ.get("WANDB_MODE") or ("online" if (os.environ.get("WANDB_API_KEY") or getattr(config, "wandb_key", None)) else "offline"),
++                entity=os.environ.get("WANDB_ENTITY") or config.wandb_entity,
++                project=os.environ.get("WANDB_PROJECT") or config.wandb_project,
++                dir=config.wandb_save_dir or str(config.logdir)
+             )
+ 
+         self.output_path = config.logdir
+@@ -914,6 +938,10 @@ class Trainer:
+         if self.is_main_process:
+             if not self.disable_wandb:
+                 wandb.log(wandb_loss_dict, step=self.step)
++            # thermal-v2v: same numbers to a local jsonl (wandb may be offline / disabled)
++            with open(os.path.join(self.output_path, "train_log.jsonl"), "a") as _f:
++                _f.write(json.dumps({"step": int(self.step), "time": time.time(),
++                                     **{k: (float(v) if hasattr(v, "__float__") else v) for k, v in wandb_loss_dict.items()}}) + "\n")
+             print(
+                 f"[step {self.step:07d}] "
+                 f"generator_loss={wandb_loss_dict['generator_loss']:.6f}, "
+@@ -965,6 +993,50 @@ class Trainer:
+                     p.data.copy_(ema_val.to(dtype=p.dtype, device=p.device))
+                     self.generator_ema.shadow[cleaned_name] = tmp
+ 
++    @torch.no_grad()
++    def _thermal_eval(self):
++        """thermal-v2v: stream rgb2thermal over a few fixed 81f val clips with the CURRENT generator (all ranks run
++        the FSDP forward; rank 0 decodes, writes the mp4s and logs the metrics)."""
++        from safetensors.torch import load_file
++        from utils.thermal_dataset import WAN22_MEAN, WAN22_STD, caption_for_file
++        ev = _ev_module()
++        files = sorted(glob.glob(os.path.join(str(self.config.thermal_eval_dir), "*.safetensors")))
++        n = int(getattr(self.config, "thermal_eval_n", 2))
++        files = files[:: max(1, len(files) // max(n, 1))][:n]
++        if self.model.inference_pipeline is None:
++            self.model._initialize_inference_pipeline()
++        pipe = self.model.inference_pipeline
++        gen = self.model.generator
++        was_training = gen.training
++        gen.eval()
++        mean = torch.tensor(WAN22_MEAN).view(1, 48, 1, 1, 1)
++        std = torch.tensor(WAN22_STD).view(1, 48, 1, 1, 1)
++        f_lat = int(self.config.image_or_video_shape[1]) // 2
++        prompt = getattr(self.config, "thermal_prompt", "structured")
++        run = wandb.run if (self.is_main_process and not self.disable_wandb) else None
++        for fi, f in enumerate(files):
++            d = load_file(f)
++            cond = (d["cond"].float()[None, :, :f_lat] - mean) / std
++            tgt = (d["target"].float()[None, :, :f_lat] - mean) / std
++            cond_bf = cond.permute(0, 2, 1, 3, 4).to(self.device, torch.bfloat16)
++            g = torch.Generator(device="cpu").manual_seed(1234 + fi)
++            noise = torch.randn((1, 2 * f_lat, 48, cond.shape[-2], cond.shape[-1]), generator=g).to(self.device, torch.bfloat16)
++            num_blocks = (2 * f_lat) // pipe.num_frame_per_block
++            lat = pipe.inference(noise=noise, text_prompts=[[caption_for_file(f, prompt)] * num_blocks],
++                                 return_latents=True, cond_latents=cond_bf)
++            lat = lat[1] if isinstance(lat, tuple) else lat
++            if self.is_main_process:
++                vae = self.model.vae
++                pred = vae.decode_to_pixel(lat[:, 1::2].to(torch.bfloat16))[0].float().mean(1).cpu().numpy()
++                gt = vae.decode_to_pixel(tgt.permute(0, 2, 1, 3, 4).to(self.device, torch.bfloat16))[0].float().mean(1).cpu().numpy()
++                rgb = vae.decode_to_pixel(cond_bf)[0].float().cpu().numpy()
++                ev.log_eval_clip(os.path.join(self.output_path, "eval"), self.step, f"rgb2thermal/clip{fi}", rgb, pred, gt,
++                                 run=run, extra={"file": os.path.basename(f), "weights": "raw"})
++        if was_training:
++            gen.train()
++        torch.cuda.empty_cache()
++        barrier()
++
+     def _run_evaluation_inference(self):
+         gc.collect()
+         torch.cuda.empty_cache()
+@@ -1176,6 +1248,14 @@ class Trainer:
+                 self.save()
+                 torch.cuda.empty_cache()
+ 
++            # thermal-v2v: timed streaming eval on fixed val clips -> <logdir>/eval/step_X/*.mp4 + eval_log.jsonl + wandb
++            if getattr(self.config, "thermal_eval_dir", None):
++                if not hasattr(self, "_ev_timer"):
++                    self._ev_timer = _ev_module().EvalTimer(float(getattr(self.config, "thermal_eval_minutes", 60)),
++                                                            bool(getattr(self.config, "thermal_eval_at_start", True)))
++                if self._ev_timer.due():
++                    self._thermal_eval()
++
+             evaluation_interval = section_get(self.config, "evaluation", "interval", getattr(self.config, "generate_interval", 0))
+             if evaluation_interval > 0 and self.step % evaluation_interval == 0:
+                 self._run_evaluation_inference()
 -- 
 2.52.0
 

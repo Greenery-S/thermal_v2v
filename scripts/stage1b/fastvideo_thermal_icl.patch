@@ -1,7 +1,7 @@
 From 59cd356ff4633386271c4e4818700a608ee0a8ac Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 8 Oct 2026 19:38:43 +0800
-Subject: [PATCH] thermal_v2v ICL: cond_latents in WanTransformer3DModel +
+Subject: [PATCH 1/2] thermal_v2v ICL: cond_latents in WanTransformer3DModel +
  WanICLDistillationPipeline
 
 ---
@@ -167,6 +167,108 @@ index 00000000..f29d3f3b
 +    args = parser.parse_args()
 +    args.dit_cpu_offload = False
 +    main(args)
+-- 
+2.52.0
+
+
+From bcd6843d6e38b2d82513eae283ad6b730e0268fd Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 19:40:09 +0800
+Subject: [PATCH 2/2] thermal_v2v ICL: timed V2V eval (mp4 + metrics, wandb) in
+ place of the T2V validation
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ .../training/wan_icl_distillation_pipeline.py | 73 ++++++++++++++++++-
+ 1 file changed, 72 insertions(+), 1 deletion(-)
+
+diff --git a/fastvideo/training/wan_icl_distillation_pipeline.py b/fastvideo/training/wan_icl_distillation_pipeline.py
+index f29d3f3b..8fd2b3d3 100644
+--- a/fastvideo/training/wan_icl_distillation_pipeline.py
++++ b/fastvideo/training/wan_icl_distillation_pipeline.py
+@@ -37,9 +37,80 @@ class WanICLDistillationPipeline(WanDistillationPipeline):
+         self.train_dataset_schema = pyarrow_schema_icl
+ 
+     def initialize_validation_pipeline(self, training_args):
+-        logger.info("ICL distillation: T2V validation pipeline disabled (use thermal_v2v infer for V2V eval)")
++        logger.info("ICL distillation: T2V validation pipeline disabled; thermal_v2v timed V2V eval instead")
+         self.validation_pipeline = None
+ 
++    @torch.no_grad()
++    def _log_validation(self, transformer, training_args, global_step) -> None:
++        """thermal_v2v: every THERMAL_EVAL_MINUTES (default 60; first call at the start), run the CURRENT student
++        (raw weights, few-step DMD sampler with the training --dmd_denoising_steps) on THERMAL_EVAL_N fixed val clips
++        from THERMAL_EVAL_DIR (our 33f latents). All ranks run the (FSDP) forward; rank 0 decodes and writes
++        <output_dir>/eval/step_X/rgb2thermal/clipN.mp4 + eval_log.jsonl and logs to the wandb tracker.
++        Called by the training loop when --log_validation True --validation_steps 1 (the timer does the gating)."""
++        import glob, importlib.util, json, os
++        import torch.distributed as dist
++        from safetensors import safe_open
++        repo, vdir = os.environ.get("THERMAL_V2V_REPO"), os.environ.get("THERMAL_EVAL_DIR")
++        if not repo or not vdir:
++            return
++        if not hasattr(self, "_ev"):
++            spec = importlib.util.spec_from_file_location("thermal_v2v_eval_video", os.path.join(repo, "tools", "eval_video.py"))
++            self._ev = importlib.util.module_from_spec(spec); spec.loader.exec_module(self._ev)
++            spec = importlib.util.spec_from_file_location("thermal_v2v_captions", os.path.join(repo, "datasets", "captions.py"))
++            self._cap = importlib.util.module_from_spec(spec); spec.loader.exec_module(self._cap)
++            self._ev_timer = self._ev.EvalTimer(float(os.environ.get("THERMAL_EVAL_MINUTES", 60)), True)
++            self._prompt_cache = torch.load(os.environ["THERMAL_PROMPT_EMBEDS"], map_location="cpu")
++        if not self._ev_timer.due():
++            return
++        rank0 = (not dist.is_initialized()) or dist.get_rank() == 0
++        files = sorted(glob.glob(os.path.join(vdir, "*.safetensors")))
++        n = int(os.environ.get("THERMAL_EVAL_N", 2))
++        files = files[:: max(1, len(files) // max(n, 1))][:n]
++        vae = self.get_module("vae")
++        mean = torch.tensor(vae.latents_mean).view(1, -1, 1, 1, 1).to(self.device)
++        std = torch.tensor(vae.latents_std).view(1, -1, 1, 1, 1).to(self.device)
++        sig = [float(v) / 1000.0 for v in str(training_args.dmd_denoising_steps).split(",")]
++        dec_vae = None
++        if rank0:
++            from diffusers import AutoencoderKLWan
++            dec_vae = AutoencoderKLWan.from_pretrained(os.path.join(training_args.model_path, "vae"),
++                                                       torch_dtype=torch.float32).to(self.device).eval()
++        was_training = transformer.training
++        transformer.eval()
++        for fi, f in enumerate(files):
++            with safe_open(f, "pt") as sf:
++                meta = json.loads((sf.metadata() or {}).get("meta", "{}"))
++                cond_raw = sf.get_tensor("cond").float()[None].to(self.device)
++                tgt_raw = sf.get_tensor("target").float()[None].to(self.device)
++            cond = ((cond_raw - mean) / std).to(torch.bfloat16)
++            cap = self._cap.caption("rgb2thermal", meta.get("sensor", "radiometric"), meta.get("media", "video"))
++            pe = self._prompt_cache[cap].to(self.device, torch.bfloat16)[None]           # [1, 512, 4096], zero-padded
++            L = int((pe[0].float().abs().sum(-1) > 0).sum())
++            mask = torch.zeros(1, pe.shape[1], device=self.device, dtype=torch.bfloat16); mask[:, :L] = 1
++            g = torch.Generator(device=self.device).manual_seed(1234 + fi)
++            x = torch.randn(cond.shape, generator=g, device=self.device, dtype=torch.float32)
++            for k, sg in enumerate(sig):
++                with torch.autocast("cuda", dtype=torch.bfloat16):
++                    v = transformer(hidden_states=x.to(torch.bfloat16), encoder_hidden_states=pe,
++                                    timestep=torch.tensor([sg * 1000.0], device=self.device),
++                                    encoder_attention_mask=mask, cond_latents=cond, return_dict=False)
++                v = (v[0] if isinstance(v, (tuple, list)) else v).float()
++                x0 = x - sg * v
++                x = x0 if k == len(sig) - 1 else (1 - sig[k + 1]) * x0 + sig[k + 1] * torch.randn(
++                    x0.shape, generator=g, device=self.device)
++            if rank0:
++                d = lambda z: dec_vae.decode(z.float()).sample[0].float().clamp(-1, 1).permute(1, 0, 2, 3).cpu().numpy()
++                self._ev.log_eval_clip(os.path.join(training_args.output_dir, "eval"), global_step, f"rgb2thermal/clip{fi}",
++                                       d(cond_raw), d(x * std + mean).mean(1), d(tgt_raw).mean(1),
++                                       run=getattr(self.tracker, "_run", None),
++                                       extra={"file": os.path.basename(f), "weights": "raw", "steps": len(sig)})
++        if was_training:
++            transformer.train()
++        del dec_vae
++        torch.cuda.empty_cache()
++        if dist.is_initialized():
++            dist.barrier()
++
+     def _get_next_batch(self, training_batch: TrainingBatch) -> TrainingBatch:
+         """Same as DistillationPipeline._get_next_batch (non-simulate branch kept for the target latent, which is
+         only used by the non-simulated generator path) plus the condition latent column."""
 -- 
 2.52.0
 
