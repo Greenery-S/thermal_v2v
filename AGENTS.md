@@ -75,6 +75,17 @@ which only exist after the setup scripts ran.
 If `conda run` is unavailable in batch jobs, set `PY`, `PY_LL`, `PY_FV` in `env.sh` to the absolute python paths of
 the three envs.
 
+**After a `git pull`.** The setup scripts skip a checkout that already exists, so a changed patch is not applied by
+re-running them. If `git diff --stat ORIG_HEAD -- scripts/stage2/longlive_thermal_v2v.patch` (or the stage-1b patch) is
+non-empty, rebuild that branch from the pinned commit. This discards local edits in that checkout.
+
+```bash
+git -C $THERMAL_EXT/LongLive checkout -B thermal-v2v c6a27e7
+git -C $THERMAL_EXT/LongLive -c user.name=thermal_v2v -c user.email=none am "$PWD/scripts/stage2/longlive_thermal_v2v.patch"
+git -C $THERMAL_EXT/FastVideo checkout -B thermal-icl 2b164405
+git -C $THERMAL_EXT/FastVideo -c user.name=thermal_v2v -c user.email=none am "$PWD/scripts/stage1b/fastvideo_thermal_icl.patch"
+```
+
 ## 3. S1 · Download data (once; mostly network-bound)
 
 ```bash
