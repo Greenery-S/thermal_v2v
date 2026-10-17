@@ -11,11 +11,11 @@ set -euo pipefail
 TEACHER=${TEACHER:-$THERMAL_RUNS/stage1b_teacher/Wan2.2-TI2V-5B-Diffusers}
 DATA=${DATA:-$THERMAL_DATA/fastvideo/rgb2thermal_33f/train}
 OUT=${OUT:-$THERMAL_RUNS/stage1b_dmd3}
-NPROC=${NPROC:-$(nvidia-smi -L | wc -l)}
+NPROC=${NPROC:-$(_thermal_ngpu)}
 mkdir -p "$OUT"
 export FASTVIDEO_ATTENTION_BACKEND=TORCH_SDPA TOKENIZERS_PARALLELISM=false
 # wandb: online with WANDB_API_KEY / login, else offline under $OUT/tracker (wandb sync later)
-[ -z "${WANDB_MODE:-}" ] && { [ -n "${WANDB_API_KEY:-}" ] && export WANDB_MODE=online || export WANDB_MODE=offline; }
+export WANDB_MODE=${WANDB_MODE:-$(cd "$REPO" && $PY_FV -c "import importlib.util as u; s=u.spec_from_file_location('ev','tools/eval_video.py'); m=u.module_from_spec(s); s.loader.exec_module(m); print(m.wandb_mode())" 2>/dev/null || echo offline)}
 # timed in-training V2V eval (patched _log_validation): mp4 + metrics -> $OUT/eval and wandb, first one at the start
 export THERMAL_V2V_REPO=$REPO THERMAL_EVAL_DIR=${THERMAL_EVAL_DIR:-$THERMAL_DATA/latents/tartanrgbt_33f/val}
 export THERMAL_PROMPT_EMBEDS=${THERMAL_PROMPT_EMBEDS:-$THERMAL_RUNS/stage1_bidir_33f/prompt_embeds.pt}
@@ -43,7 +43,7 @@ ARGS=(
 )
 # --real_score_guidance_scale is FastVideo's (cond + w*(cond-uncond)): w=1.0 == CFG 2.0 on the condition video.
 RES=()
-last=$(ls -d "$OUT"/checkpoint-* 2>/dev/null | grep -v weight_only | sort -t- -k2 -n | tail -1 || true)
+last=$(ls -d "$OUT"/checkpoint-* 2>/dev/null | grep -v weight_only | awk -F'checkpoint-' '{print $NF"\t"$0}' | sort -n | tail -1 | cut -f2 || true)
 [ -n "$last" ] && RES=(--resume_from_checkpoint "$last") && echo "[stage1b] resuming from $last"
 $PY_FV -m torch.distributed.run --standalone --nproc_per_node "$NPROC" fastvideo/training/runner.py "${ARGS[@]}" "${RES[@]}" "$@" \
   2>&1 | tee -a "$OUT/console.log"

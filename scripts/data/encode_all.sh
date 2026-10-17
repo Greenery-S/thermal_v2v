@@ -9,7 +9,8 @@ WHAT=${1:-all}; shift || true
 EXTRA=("$@")
 RAW=$THERMAL_DATA/raw; LAT=$THERMAL_DATA/latents
 if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then GPUS=(${CUDA_VISIBLE_DEVICES//,/ }); else GPUS=($(seq 0 $(( $(nvidia-smi -L | wc -l) - 1 )))); fi
-NG=${NGPU:-${#GPUS[@]}}; NNODES=${NNODES:-1}; NODE_RANK=${NODE_RANK:-0}; N=$((NG * NNODES))
+NG=${NGPU:-${#GPUS[@]}}; NNODES=${NNODES:-1}; N=$((NG * NNODES))
+if [ "$NNODES" -gt 1 ]; then : "${NODE_RANK:?set NODE_RANK (0..NNODES-1) on every node}"; else NODE_RANK=${NODE_RANK:-0}; fi
 mkdir -p "$LAT/logs"
 
 run() {  # run <name> <split> <precompute args...>
@@ -45,8 +46,8 @@ if [ "$WHAT" = stage2 ] || [ "$WHAT" = all ]; then           # 81 frames (stage-
 fi
 if [ "$WHAT" = stage3 ] || [ "$WHAT" = all ]; then           # stage 3 (S7/S8 few-step streaming)
   # S8 long-rollout tuning: 481-frame (~48 s) video clips. FFC windows are kept: DMD conditions on the RGB only.
-  run tartanrgbt_481f train "${TARTAN[@]}" --num_frames 481 --stride 480 --keep_bad
-  run kaist_481f      train "${KAIST[@]}"  --num_frames 481 --stride 480 --keep_bad
+  run tartanrgbt_481f train "${TARTAN[@]}" --num_frames 481 --stride 480 --keep_bad --num_workers 1
+  run kaist_481f      train "${KAIST[@]}"  --num_frames 481 --stride 480 --keep_bad --num_workers 1
   # long-stream eval: the 4-min TartanRGBT val sequence (day5, 2389 frames at 10 Hz) as ONE clip
-  run tartanrgbt_long val "${TARTAN[@]}" --num_frames 2389 --stride 100000 --keep_bad
+  run tartanrgbt_long val "${TARTAN[@]}" --num_frames 2389 --stride 100000 --keep_bad --num_workers 1
 fi

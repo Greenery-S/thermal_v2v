@@ -15,7 +15,7 @@ S0–S8 and the scripts it runs, and every model with ①–⑥; use the same ID
 | ③ | bidirectional 3-step RGB→thermal | stage 1b | `$THERMAL_RUNS/stage1b_dmd3/checkpoint-*_weight_only/ema/generator_ema.safetensors` |
 | ④ | streaming autoregressive multi-step RGB→thermal | stage 2 | `$THERMAL_RUNS/stage2_ar/checkpoint_model_*/model.pt` (+ `snapshots/`) |
 | ⑤ | streaming 4-step RGB→thermal (self-forcing DMD LoRA on ④) | S7 | `$THERMAL_RUNS/stage3_dmd/checkpoint_model_*/model.pt` |
-| ⑥ | streaming 4-step RGB→thermal for long video (⑤ + long-rollout tuning) | S8 | `$THERMAL_RUNS/stage3_long/checkpoint_model_*/model.pt` |
+| ⑥ | streaming 4-step RGB→thermal for long video (⑤ + long-rollout tuning; default S8b = + GT regression) | S8 | `$THERMAL_RUNS/stage3_long/checkpoint_model_*/model.pt` |
 
 Dependencies:
 - S4 → (S5, S6). S5 and S6 both start from a chosen S4 checkpoint and can run in parallel on different GPUs.
@@ -64,6 +64,9 @@ bash scripts/stage2/setup_longlive.sh       # LongLive + patch + env + Wan2.2 or
 huggingface-cli download Wan-AI/Wan2.2-TI2V-5B-Diffusers --local-dir "$WAN22_5B_DIR"
 ```
 
+Then `source scripts/env.sh` again (or open a new shell): `env.sh` resolves `PY`, `PY_LL` and `PY_FV` from the conda envs,
+which only exist after the setup scripts ran.
+
 **Check:**
 - `$PY -c "import torch;print(torch.cuda.is_available())"` prints True; same for `$PY_LL` and `$PY_FV`.
 - `git -C $THERMAL_EXT/LongLive log --oneline | head -3` shows thermal-v2v commits on top of `c6a27e7`.
@@ -75,7 +78,7 @@ the three envs.
 ## 3. S1 · Download data (once; mostly network-bound)
 
 ```bash
-python scripts/data/download_tartanrgbt.py --out $THERMAL_DATA/raw/TartanRGBT \
+$PY scripts/data/download_tartanrgbt.py --out $THERMAL_DATA/raw/TartanRGBT \
     --sequences_file configs/data/tartanrgbt_download.txt --delete_zips
 bash scripts/data/download_kaist.sh $THERMAL_DATA/raw/KAIST
 bash scripts/data/download_llvip.sh $THERMAL_DATA/raw/LLVIP
@@ -89,11 +92,11 @@ bash scripts/data/download_llvip.sh $THERMAL_DATA/raw/LLVIP
 ## 4. S2 · Smoke test (MANDATORY before any real run)
 
 ```bash
-bash scripts/smoke_test.sh       # 1 GPU, ~1.5 h, outputs in $THERMAL_RUNS/smoke
+bash scripts/smoke_test.sh       # 1 GPU, ~30 min on an H200, outputs in $THERMAL_RUNS/smoke
 ```
 
-It must end with `=== … SMOKE TEST PASSED`. On the way it prints three `ok: … in-training eval` lines, one each for
-stages 1, 1b and 2. Each part can be re-run alone, e.g. `SMOKE_STEPS="1b 2"`. The numbers in the smoke outputs are
+It must end with `=== … SMOKE TEST PASSED`. On the way it prints six `ok: … in-training eval` lines, one each for
+stages 1, 1b, 2, S7, S8a and S8b. Each part can be re-run alone, e.g. `SMOKE_STEPS="1b 2"`. The numbers in the smoke outputs are
 meaningless (20 training steps). Only the plumbing is being tested.
 
 **Report:**
@@ -137,7 +140,7 @@ bash scripts/stage1/train.sh                  # single node, all GPUs
 ```
 
 - Defaults are in `configs/stage1/bidir_33f.yaml`: per-GPU batch 2, lr 1e-4, 3000 steps, val every 250, checkpoint
-  every 250.
+  every 250 (all kept).
 - If the GPU count differs from 32, keep per-GPU batch 2, and scale `training.max_steps` so that
   `max_steps × global_batch ≈ 190k` samples.
 
@@ -162,7 +165,7 @@ bash scripts/stage1/eval.sh step_XXXX.pt thermal2rgb
 ## 7. S5 · Stage 1b: 3-step student → model ③ (from the chosen stage-1 checkpoint)
 
 ```bash
-python scripts/stage1b/merge_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_XXXX.pt \
+$PY scripts/stage1b/merge_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_XXXX.pt \
     --out $THERMAL_RUNS/stage1b_teacher/Wan2.2-TI2V-5B-Diffusers
 $PY_FV scripts/stage1b/latents_to_parquet.py --prompt_embeds $THERMAL_RUNS/stage1_bidir_33f/prompt_embeds.pt \
     --src $THERMAL_DATA/latents/tartanrgbt_33f/train:0.6 --src $THERMAL_DATA/latents/kaist_33f/train:0.25 \
@@ -179,12 +182,12 @@ bash scripts/stage1b/eval.sh <step>           # 3-step student vs. the stage-1 3
 ## 8. S6 · Stage 2: streaming AR multi-step RGB→thermal → model ④ (from the chosen stage-1 checkpoint)
 
 ```bash
-python scripts/stage2/export_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_XXXX.pt \
+$PY scripts/stage2/export_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_XXXX.pt \
     --out $THERMAL_RUNS/stage2_teacher
 INFER_CFG=configs/thermal/stage2_infer_bidir.yaml bash scripts/stage2/eval_ar.sh $THERMAL_RUNS/stage2_teacher_bidir_eval
 bash scripts/stage2/train_ar.sh stage2_ar     # FSDP, all local GPUs
 bash scripts/stage2/eval_ar.sh $THERMAL_RUNS/stage2_ar/eval_sNNNN \
-    $THERMAL_RUNS/stage2_ar/checkpoint_model_NNNNNN/model.pt --steps 30 --n 8
+    $THERMAL_RUNS/stage2_ar/snapshots/step_NNNNNN.pt --steps 30 --n 8
 ```
 
 **Check:**
@@ -222,10 +225,33 @@ STAGE2_CKPT=... bash scripts/stage3/eval.sh $THERMAL_RUNS/stage3_long/checkpoint
 - the contrast should track the real thermal for the whole stream;
 - the short clips must not get worse than ⑤.
 
-Prototype reference, step 200: stream pearson 0.72 (④, 30 steps) → 0.90 (⑥, 4 steps); short clips unchanged.
+S8 has two variants:
+- **S8b, recommended and the default:** `configs/thermal/stage3_long_gtreg.yaml`, which adds a ground-truth regression
+  term (`gt_regression_weight: 0.25`).
+- **S8a, plain DMD:** `STAGE3_CONFIG=configs/thermal/stage3_long.yaml bash scripts/stage3/train_long.sh`.
+
+Prototype reference, step 200:
+- stream pearson 0.72 (④, 30 steps) → 0.90 (⑥, 4 steps); short clips unchanged.
+- S8a vs S8b, raw weights, 8 short clips:
+  - pearson 0.636 → 0.689;
+  - near-white pixel excess 4.4% → 2.2%;
+  - std ratio 1.17 → 1.00;
+  - sharpness ratio 1.13 → 0.99.
+- Plain DMD drifts whiter and over-sharpened.
+
+If S8b blurs, or its pearson drops below ⑤, lower `gt_regression_weight` to 0.05–0.1.
 
 ⑥ must be run with the 1-pair frame sink it was trained with (`eval.sh … long`, i.e.
 `configs/thermal/stage3_infer_long.yaml`).
+
+## 8d. Step counts on more GPUs (S6–S8)
+
+- Stages 2 and 3 use per-GPU batch 1, so the global batch = number of GPUs. Their step counts
+  (`max_iters` in `stage2_ar.yaml` 3000, `stage3_dmd.yaml` 1000, `stage3_long{,_gtreg}.yaml` 1100) are the 1-GPU
+  prototype values.
+- With N GPUs each step sees N clips. As a starting point, divide those counts by roughly N/2 and pick the step by the
+  in-training evals, not by the counter.
+- S8's `max_iters` counts on from the S7 step it starts from: S7 step 100 + 1000 S8 iterations = 1100.
 
 ## 9. Common failures
 
@@ -233,7 +259,7 @@ Prototype reference, step 200: stream pearson 0.72 (④, 30 steps) → 0.90 (⑥
 |---|---|
 | `No space left on device` | Free space or move `THERMAL_RUNS`. Stage-2 checkpoints are ~50 GB, the 1b merged teacher ~20 GB. |
 | hangs at start on a shared filesystem | `flock` on NFS. `HF_HOME` / caches must be on a lock-capable disk; `HDF5_USE_FILE_LOCKING=FALSE` is already set. |
-| triton / inductor `.so` permission errors | `TORCHINDUCTOR_CACHE_DIR` / `TRITON_CACHE_DIR` must be on an exec-able disk (not a noexec `/dev/shm`). |
+| triton / inductor `.so` errors (`failed to map segment from shared object`, permission denied) | `TORCHINDUCTOR_CACHE_DIR` / `TRITON_CACHE_DIR` must be on an exec-able disk (not a noexec `/dev/shm`). |
 | CUDA "driver too old" | The driver must support CUDA 12.8 (stage 1/2) / 12.6 (stage 1b). Use matching wheels. |
 | NCCL timeout during the hourly eval | Stage 1 evals on rank 0 while the others wait (timeout raised to 90 min). If still hit, lower `training.eval_clips` / `eval_steps`. |
 | wandb errors | Never fatal; runs offline without `WANDB_API_KEY`. `wandb sync` later. |

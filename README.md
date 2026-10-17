@@ -31,10 +31,19 @@ The few-step streaming model continues from ④ in two steps:
   is the stage-1 model.
 - **⑥ (S8) long-rollout tuning of that LoRA:** the student rolls out far past the window, and the teacher scores only
   the last window. This removes the slow wash-out over minute-long streams.
+  - Two variants: **S8b (recommended, the default)** adds a ground-truth regression term; S8a is plain DMD.
+  - The regression pulls the student's thermal latents toward the real thermal. This is possible because the data is
+    paired.
+  - Plain DMD drifts toward a whiter, over-sharpened look.
 
 Prototype (1×H200, TartanRGBT, single-direction teacher):
 - ⑤ matched ④ (30 steps) at 4 steps;
 - ⑥ raised the 4-min stream from pearson 0.72 (④, 30 steps) to 0.90 (4 steps), with short clips unchanged.
+- S8a vs S8b at step 200 (raw weights, 8 short clips):
+  - pearson 0.636 → 0.689;
+  - near-white pixels in excess of real 4.4% → 2.2%;
+  - std ratio 1.17 → 1.00;
+  - sharpness ratio 1.13 → 0.99.
 
 Deliverables of this hand-off:
 
@@ -45,7 +54,7 @@ Deliverables of this hand-off:
 | ③ | bidirectional, **3-step** rgb→thermal | 1b | hao-ai-lab/FastVideo + `scripts/stage1b/fastvideo_thermal_icl.patch` |
 | ④ | streaming (autoregressive), multi-step rgb→thermal | 2 (S6) | NVlabs/LongLive 2.0 + `scripts/stage2/longlive_thermal_v2v.patch` |
 | ⑤ | streaming 4-step rgb→thermal (self-forcing DMD LoRA on ④) | 3 (S7) | same LongLive patch, `scripts/stage3/train_dmd.sh` |
-| ⑥ | streaming 4-step rgb→thermal for long video (⑤ + long-rollout tuning) | 3 (S8) | same, `scripts/stage3/train_long.sh` |
+| ⑥ | streaming 4-step rgb→thermal for long video (⑤ + long-rollout tuning; S8b + GT regression recommended) | 3 (S8) | same, `scripts/stage3/train_long.sh` |
 
 - **Stage 1:** one LoRA for rgb→thermal, thermal→rgb and joint generation, on 33-frame clips.
 - **Stage 1b:** distils the stage-1 teacher (rgb→thermal) into a 3-step student. This is the phase-1 recipe that
@@ -117,7 +126,7 @@ Hugging Face token (`huggingface-cli login` or `HF_TOKEN`), the ~300 GB TartanRG
 rate-limited. The scripts retry and resume either way.
 
 ```bash
-python scripts/data/download_tartanrgbt.py --out $THERMAL_DATA/raw/TartanRGBT \
+$PY scripts/data/download_tartanrgbt.py --out $THERMAL_DATA/raw/TartanRGBT \
     --sequences_file configs/data/tartanrgbt_download.txt --delete_zips      # 38 sequences, ~300 GB
 bash scripts/data/download_kaist.sh $THERMAL_DATA/raw/KAIST                   # official Drive tar, 39 GB (+ extracted)
 bash scripts/data/download_llvip.sh $THERMAL_DATA/raw/LLVIP                   # 4 GB
@@ -169,7 +178,7 @@ UniVidX recipe). It cannot be merged.
 ## 5. Stage 1b: 3-step bidirectional rgb → thermal, FastVideo DMD (S5 → ③)
 
 ```bash
-python scripts/stage1b/merge_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_3000.pt \
+$PY scripts/stage1b/merge_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_3000.pt \
     --out $THERMAL_RUNS/stage1b_teacher/Wan2.2-TI2V-5B-Diffusers
 $PY_FV scripts/stage1b/latents_to_parquet.py --prompt_embeds $THERMAL_RUNS/stage1_bidir_33f/prompt_embeds.pt \
     --src $THERMAL_DATA/latents/tartanrgbt_33f/train:0.6 --src $THERMAL_DATA/latents/kaist_33f/train:0.25 \
@@ -192,11 +201,11 @@ bash scripts/stage1b/eval.sh 3000          # 3-step student (EMA), no CFG; compa
 ## 6. Stage 2: streaming RGB → thermal, autoregressive teacher forcing (S6 → ④)
 
 ```bash
-python scripts/stage2/export_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_3000.pt \
+$PY scripts/stage2/export_teacher.py --run_dir $THERMAL_RUNS/stage1_bidir_33f --ckpt step_3000.pt \
     --out $THERMAL_RUNS/stage2_teacher             # merged LoRA, LongLive (original Wan) key layout + caption cache
 bash scripts/stage2/train_ar.sh stage2_ar          # configs/thermal/stage2_ar.yaml inside the LongLive checkout
 bash scripts/stage2/eval_ar.sh $THERMAL_RUNS/stage2_ar/eval_s2000 \
-    $THERMAL_RUNS/stage2_ar/checkpoint_model_002000/model.pt --steps 30 --n 8
+    $THERMAL_RUNS/stage2_ar/snapshots/step_002000.pt --steps 30 --n 8   # bf16 EMA snapshots = the step candidates
 INFER_CFG=configs/thermal/stage2_infer_bidir.yaml \
     bash scripts/stage2/eval_ar.sh $THERMAL_RUNS/stage2_ar/eval_teacher_bidir   # bidirectional reference
 ```
@@ -222,13 +231,15 @@ Reference from the Hopper prototype (single-direction teacher, TartanRGBT only, 
 bash scripts/data/encode_all.sh stage3          # 481f long clips + the 4-min val stream
 STAGE2_CKPT=$THERMAL_RUNS/stage2_ar/snapshots/step_XXXXXX.pt bash scripts/stage3/train_dmd.sh            # S7
 STAGE2_CKPT=... STAGE3_LORA=$THERMAL_RUNS/stage3_dmd/checkpoint_model_XXXXXX/model.pt \
-    bash scripts/stage3/train_long.sh                                                                  # S8
+    bash scripts/stage3/train_long.sh                                                                  # S8 (S8b)
 STAGE2_CKPT=... bash scripts/stage3/eval.sh <S7|S8 checkpoint_model_*/model.pt> <out_dir> [long]
 ```
 
 - ⑤ and ⑥ are LoRAs used on top of the S6 checkpoint they were trained on.
 - ⑥ must run with the 1-pair frame sink it was trained with (`eval.sh … long` / `configs/thermal/stage3_infer_long.yaml`).
-- Configs: `configs/thermal/stage3_{dmd,long}.yaml` in the LongLive checkout.
+- S8 runs S8b by default: `configs/thermal/stage3_long_gtreg.yaml`, which uses `gt_regression_weight: 0.25`.
+- To run plain-DMD S8a instead: `STAGE3_CONFIG=configs/thermal/stage3_long.yaml bash scripts/stage3/train_long.sh`.
+- Configs: `configs/thermal/stage3_{dmd,long,long_gtreg}.yaml` in the LongLive checkout.
 - Recipe:
   - LoRA r128 with EMA 0.99;
   - real score = the exported stage-1 teacher, scored bidirectionally;
@@ -239,10 +250,11 @@ STAGE2_CKPT=... bash scripts/stage3/eval.sh <S7|S8 checkpoint_model_*/model.pt> 
 
 All three training stages log the same way:
 
-- **wandb.** The default project is `thermal_v2v`; override it with `WANDB_PROJECT` / `WANDB_ENTITY`.
-  - The run is online when `WANDB_API_KEY` is set or you are logged in.
-  - Otherwise it runs offline inside the run directory; upload it later with `wandb sync <run>/.../wandb/offline-run-*`.
-  - One run id per run directory, so restarts and resumes continue the same curves.
+- **wandb.** Project `thermal_v2v` (override with `WANDB_PROJECT` / `WANDB_ENTITY`).
+  - The run is online when `WANDB_API_KEY` is set or `wandb login` stored a key; otherwise it is offline inside the run
+    directory, and you upload it later with `wandb sync <run>/.../wandb/offline-run-*`. `WANDB_MODE` overrides.
+  - Each run directory gets its own wandb id (`wandb_id.txt`): restarts continue the same curves, and a new run
+    directory (e.g. after the smoke test) never collides with an old one.
 - **Local logs in the run directory:**
   - `console.log`: full stdout/stderr;
   - `train_log.jsonl`: per-step losses, the same numbers as wandb;
@@ -267,8 +279,8 @@ All three training stages log the same way:
 ## 8. Smoke test (S2: do this first on a new cluster)
 
 ```bash
-bash scripts/smoke_test.sh                 # 1 GPU, a few clips per source, ~1.5 h; outputs under $THERMAL_RUNS/smoke
-SMOKE_STEPS="data 1" bash scripts/smoke_test.sh    # or only some parts: data 1 1b 2
+bash scripts/smoke_test.sh                 # 1 GPU, a few clips per source, ~30 min on an H200; outputs under $THERMAL_RUNS/smoke
+SMOKE_STEPS="data 1" bash scripts/smoke_test.sh    # or only some parts: data 1 1b 2 3
 ```
 
 It runs the whole chain:
@@ -279,7 +291,7 @@ It runs the whole chain:
 5. export the teacher for stage 2;
 6. stage 2 for 10 iterations (no checkpoint: a full stage-2 checkpoint is ~50 GB);
 7. stage-2 streaming eval;
-8. S7 and S8 for 2 iterations each, with their in-training evals.
+8. S7, S8a and S8b for 2 iterations each, with their in-training evals.
 
 It only checks the plumbing, not the quality. It fails unless every training stage has written its in-training eval
 mp4 and its `eval_log.jsonl`.
@@ -300,5 +312,12 @@ mp4 and its `eval_log.jsonl`.
   These are fixed in the patch. Do not use an unpatched LongLive.
 - **torch.compile / triton caches** must be on a filesystem that allows exec (`TORCHINDUCTOR_CACHE_DIR`,
   `TRITON_CACHE_DIR` in `env.sh`).
+- **Not exercised by our smoke test** (it ran on one GPU, with the KAIST HF mirror and no long val stream):
+  - DDP / FSDP with more than one rank;
+  - the official KAIST layout (`kaist-cvpr15/images`);
+  - the 4-min long-stream eval inside S7/S8 (a 2389-frame decode on rank 0);
+  - the S7 → S8 hand-off via `STAGE3_LORA`.
+
+  Watch these on the first real run.
 - **Shared-filesystem locking:** on some NFS mounts `flock` hangs. Set `HDF5_USE_FILE_LOCKING=FALSE` (done in
   `env.sh`) and keep `HF_HOME` on a local or lock-capable disk.

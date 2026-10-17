@@ -211,5 +211,7 @@ def load_clip(src: Source, clip: Dict, num_frames: int, frame_step: int = 1):
     if src.media == "image":
         rgb, th = np.repeat(rgb, num_frames, 0), np.repeat(th, num_frames, 0)
     meta = {"source": src.name, "seq": clip["seq"], "start": clip["start"], "frame_step": frame_step,
-            "sensor": src.sensor, "media": src.media, "lo": lo, "hi": hi}
+            "sensor": src.sensor, "media": src.media, "lo": lo, "hi": hi,
+            # clip-relative FFC/NUC shutter frames (only in --keep_bad clips); evals leave them out of the GT metrics
+            "ffc": [] if valid is None else np.flatnonzero(~valid).tolist()}
     return rgb, th, meta

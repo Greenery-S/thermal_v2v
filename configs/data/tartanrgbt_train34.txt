@@ -1,5 +1,5 @@
 # Phase-2 full TartanRGBT training set: debug subset (21) + remaining13. Excludes the 4 val sequences
-# (tartanrgbt_debug_val.txt) and the 8 held-out eval sequences (tartanrgbt_heldout_eval.txt).
+# (tartanrgbt_debug_val.txt) and 8 further sequences kept out for held-out evaluation.
 day1/undistorted_images_all_cameras_20250822_115703
 day1/undistorted_images_all_cameras_20250822_115932
 day1/undistorted_images_all_cameras_20250822_120029

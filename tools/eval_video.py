@@ -120,18 +120,42 @@ def log_eval_clip(out_dir: str, step: int, tag: str, cond, pred, gt, run=None, f
     return m
 
 
+def wandb_mode() -> str:
+    """online if WANDB_API_KEY is set or `wandb login` stored a key (~/.netrc), else offline; WANDB_MODE overrides."""
+    if os.environ.get("WANDB_MODE"):
+        return os.environ["WANDB_MODE"]
+    if os.environ.get("WANDB_DISABLED", "").lower() == "true":
+        return "disabled"
+    if os.environ.get("WANDB_API_KEY"):
+        return "online"
+    netrc = os.path.expanduser(os.environ.get("NETRC", "~/.netrc"))
+    try:
+        return "online" if "api.wandb.ai" in open(netrc).read() else "offline"
+    except OSError:
+        return "offline"
+
+
+def wandb_run_id(out_dir: str) -> str:
+    """One wandb id per run directory, stored in <out_dir>/wandb_id.txt: restarts resume the same run, while a new run
+    directory with the same name (e.g. after the smoke test) gets a fresh run instead of colliding."""
+    os.makedirs(out_dir, exist_ok=True)
+    f = os.path.join(out_dir, "wandb_id.txt")
+    if os.environ.get("WANDB_RUN_ID"):
+        return os.environ["WANDB_RUN_ID"]
+    if not os.path.exists(f):
+        import uuid
+        with open(f, "w") as fh:
+            fh.write(uuid.uuid4().hex[:12])
+    return open(f).read().strip()
+
+
 def wandb_init(project: str, name: str, out_dir: str, config: Optional[dict] = None):
-    """wandb run (online when WANDB_API_KEY is set / logged in, else offline under out_dir; `wandb sync` later).
-    WANDB_DISABLED=true or WANDB_MODE=disabled turns it off. Returns None if wandb is unavailable."""
+    """wandb run (see wandb_mode / wandb_run_id). Returns None if wandb is unavailable."""
     try:
         import wandb
     except ImportError:
         print("[wandb] not installed; local logs only", flush=True)
         return None
-    mode = os.environ.get("WANDB_MODE") or ("online" if os.environ.get("WANDB_API_KEY") else "offline")
-    if os.environ.get("WANDB_DISABLED", "").lower() == "true":
-        mode = "disabled"
-    os.makedirs(out_dir, exist_ok=True)
     return wandb.init(project=os.environ.get("WANDB_PROJECT", project), entity=os.environ.get("WANDB_ENTITY") or None,
-                      name=name, dir=out_dir, config=config, mode=mode, resume="allow",
-                      id=os.environ.get("WANDB_RUN_ID") or name.replace("/", "_"))
+                      name=name, dir=out_dir, config=config, mode=wandb_mode(), resume="allow",
+                      id=wandb_run_id(out_dir))

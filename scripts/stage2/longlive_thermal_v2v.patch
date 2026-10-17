@@ -1,7 +1,7 @@
 From 3235129cfa4a3db153c4614701b7dc453538c520 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 15:51:35 +0800
-Subject: [PATCH 01/46] thermal-v2v: interleaved RGB/thermal conditioning,
+Subject: [PATCH 01/50] thermal-v2v: interleaved RGB/thermal conditioning,
  cached prompts, latent dataset, farm deadline stop
 
 ---
@@ -614,7 +614,7 @@ index 276ff4e..1960684 100644
 From c42c6a420fac8a388866d3893708a0cbb0bfb6ce Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 15:54:44 +0800
-Subject: [PATCH 02/46] thermal-v2v: interleaved clamping in streaming
+Subject: [PATCH 02/50] thermal-v2v: interleaved clamping in streaming
  inference, thermal_eval.py, infer config
 
 ---
@@ -870,7 +870,7 @@ index 0000000..82a318c
 From 860e45bef8f82b082ac8ee9b2a31921392961a8e Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 16:12:17 +0800
-Subject: [PATCH 03/46] CachedTextEncoder: return bf16 embeddings
+Subject: [PATCH 03/50] CachedTextEncoder: return bf16 embeddings
 
 ---
  LongLive2.0/utils/wan_5b_wrapper.py | 4 +++-
@@ -898,7 +898,7 @@ index d9983c6..c8a0193 100644
 From e22f0cef9f8d8e353d544beab0a21bb3e1a74098 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 16:15:51 +0800
-Subject: [PATCH 04/46] thermal_eval: --pairs override
+Subject: [PATCH 04/50] thermal_eval: --pairs override
 
 ---
  LongLive2.0/thermal_eval.py | 3 +++
@@ -928,7 +928,7 @@ index 82a318c..39c3885 100644
 From 532fed537f5014efd5d8a49ab84ce4287315fb5e Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 16:42:38 +0800
-Subject: [PATCH 05/46] inference: fp32 UniPC step for interleaved mode
+Subject: [PATCH 05/50] inference: fp32 UniPC step for interleaved mode
 
 ---
  .../pipeline/causal_diffusion_inference.py     | 18 +++++++++++++-----
@@ -970,7 +970,7 @@ index 326ac9e..ea983cf 100644
 From 44e4f9fa675cf809a3de48b87b8d0af0670195d7 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 17:54:51 +0800
-Subject: [PATCH 06/46] thermal_eval: in-memory LoRA merge (LongLive-Plug) and
+Subject: [PATCH 06/50] thermal_eval: in-memory LoRA merge (LongLive-Plug) and
  --steps
 
 ---
@@ -1048,7 +1048,7 @@ index 39c3885..5784717 100644
 From 02f03156e4fb6573b17fd52ae94272a7d83a0414 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 18:12:07 +0800
-Subject: [PATCH 07/46] thermal-v2v: bf16 snapshots per save, atomic full
+Subject: [PATCH 07/50] thermal-v2v: bf16 snapshots per save, atomic full
  checkpoints, keep 1
 
 ---
@@ -1101,7 +1101,7 @@ index c5a9d84..4792f60 100644
 From a8afc2aa776d80b94c21f1912a2522e6c0869bfd Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 20:43:58 +0800
-Subject: [PATCH 08/46] thermal-v2v: optional optimizer in checkpoints, free
+Subject: [PATCH 08/50] thermal-v2v: optional optimizer in checkpoints, free
  old full ckpt first, snapshot pruning, v2 config (no error recycling)
 
 ---
@@ -1246,7 +1246,7 @@ index 4792f60..1dfad94 100644
 From 8a7cc5be6a47cd35ec3d1f33bb86cad66a3dd42e Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 20:48:08 +0800
-Subject: [PATCH 09/46] thermal-v2v: fsync+atomic saves (NFS defers ENOSPC)
+Subject: [PATCH 09/50] thermal-v2v: fsync+atomic saves (NFS defers ENOSPC)
 
 ---
  LongLive2.0/trainer/diffusion.py | 24 ++++++++++++++++++++----
@@ -1315,7 +1315,7 @@ index 1dfad94..7ca5f3d 100644
 From d560e92ca7a0a16811e8deb2a757af1a64610916 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 22:04:21 +0800
-Subject: [PATCH 10/46] thermal_eval: spread clips across sequences; pearson vs
+Subject: [PATCH 10/50] thermal_eval: spread clips across sequences; pearson vs
  GT/RGB and constant-prediction floor
 
 ---
@@ -1379,7 +1379,7 @@ index 5784717..8e3e503 100644
 From 5cecf700ed1c6121b96fd833988775dc9afc6a25 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 22:27:08 +0800
-Subject: [PATCH 11/46] thermal_eval: --steps also sets
+Subject: [PATCH 11/50] thermal_eval: --steps also sets
  inference.sampling_steps
 
 ---
@@ -1408,7 +1408,7 @@ index 8e3e503..38d0dea 100644
 From d4857864bbc3cf3c4a3c3dc68fb7017395416667 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 22:56:39 +0800
-Subject: [PATCH 12/46] v1 config: no optimizer in checkpoints, keep 3
+Subject: [PATCH 12/50] v1 config: no optimizer in checkpoints, keep 3
  snapshots
 
 ---
@@ -1435,7 +1435,7 @@ index f5a872c..7fa885b 100644
 From c44d4a46e172ec62e9fe80b4ba1d69e4139b50be Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 23:55:41 +0800
-Subject: [PATCH 13/46] thermal_eval: chunk-boundary jump ratio
+Subject: [PATCH 13/50] thermal_eval: chunk-boundary jump ratio
 
 ---
  LongLive2.0/thermal_eval.py | 14 ++++++++++++--
@@ -1483,7 +1483,7 @@ index 38d0dea..ce187fc 100644
 From acf86d759872f7a544d1682b370ece445bd5064e Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Thu, 15 Oct 2026 23:56:04 +0800
-Subject: [PATCH 14/46] retire v2 config
+Subject: [PATCH 14/50] retire v2 config
 
 ---
  LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml | 3 ++-
@@ -1514,7 +1514,7 @@ index f7f27bf..968a519 100644
 From 0fa68d89c427b216c4dd3123b1ebea243925b464 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 00:08:24 +0800
-Subject: [PATCH 15/46] bidirectional reference inference config
+Subject: [PATCH 15/50] bidirectional reference inference config
 
 ---
  .../configs/thermal/infer_bidir_r2t.yaml      | 35 +++++++++++++++++++
@@ -1569,7 +1569,7 @@ index 0000000..61a0010
 From b3fa3cc8f8031712b44bf496e44cf61c73477cd2 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 00:09:09 +0800
-Subject: [PATCH 16/46] EMA every N steps (CPU shadow update was ~10 s/step)
+Subject: [PATCH 16/50] EMA every N steps (CPU shadow update was ~10 s/step)
 
 ---
  LongLive2.0/configs/thermal/train_ar_r2t.yaml | 1 +
@@ -1625,7 +1625,7 @@ index 7ca5f3d..a7011cf 100644
 From a9bde1c642ce341a54e878ddb71b75f0f780b608 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 04:05:32 +0800
-Subject: [PATCH 17/46] thermal-v2v: DMD/self-forcing with bidirectional
+Subject: [PATCH 17/50] thermal-v2v: DMD/self-forcing with bidirectional
  teacher (interleaved cond helpers, rollout clamp, null-RGB uncond,
  EMA-snapshot init, Plug LoRA init, deadline stop)
 
@@ -2180,7 +2180,7 @@ index 2a12697..6889840 100644
 From 95f33bb6c80bb5aa2537f6948062c2ed207154a8 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 05:26:12 +0800
-Subject: [PATCH 18/46] smoke DMD config: step-2000 init
+Subject: [PATCH 18/50] smoke DMD config: step-2000 init
 
 ---
  LongLive2.0/configs/thermal/smoke_dmd_r2t.yaml | 2 +-
@@ -2206,7 +2206,7 @@ index fbe3878..1390a06 100644
 From c65fa0fe977f0c92dc8c6ef74ade915838e39a61 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 06:33:45 +0800
-Subject: [PATCH 19/46] thermal_eval: --lora_ckpt for DMD generator LoRA
+Subject: [PATCH 19/50] thermal_eval: --lora_ckpt for DMD generator LoRA
 
 ---
  LongLive2.0/thermal_eval.py | 18 +++++++++++++-----
@@ -2265,7 +2265,7 @@ index ce187fc..7f0d001 100644
 From 80ef1b7830ebdcf0705bdea3dcf58e5f7842a0a7 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 07:26:09 +0800
-Subject: [PATCH 20/46] DMD: start step count at 0 when initialised from an SFT
+Subject: [PATCH 20/50] DMD: start step count at 0 when initialised from an SFT
  snapshot
 
 ---
@@ -2296,7 +2296,7 @@ index f38c093..d11dfef 100644
 From e585efd3e20f6a2b6b02cb3f8b63aa2ab9e880dc Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 09:49:45 +0800
-Subject: [PATCH 21/46] diagnostic: teacher-forced history at inference
+Subject: [PATCH 21/50] diagnostic: teacher-forced history at inference
  (--tf_history)
 
 ---
@@ -2369,7 +2369,7 @@ index 7f0d001..afa51e2 100644
 From c76e61b1775e7643b18dc36e33bc6dfa3d7c642c Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 10:47:03 +0800
-Subject: [PATCH 22/46] FIX: inference wiped interleaved shared-position RoPE
+Subject: [PATCH 22/50] FIX: inference wiped interleaved shared-position RoPE
  offset; DMD rollout fp32 UniPC; DMD uncond = null RGB + same prompt
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2461,7 +2461,7 @@ index 6594167..3296b20 100644
 From 59c4be57523cf28434c82999cbea6047b6a22309 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 11:19:38 +0800
-Subject: [PATCH 23/46] thermal_eval: --files whole-sequence latents,
+Subject: [PATCH 23/50] thermal_eval: --files whole-sequence latents,
  FFC-masked metrics, per-window drift metrics, chunk latency
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2562,7 +2562,7 @@ index afa51e2..314aa5c 100644
 From 843168adffc4cfb628fdb3d23587a045e379f872 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 11:23:19 +0800
-Subject: [PATCH 24/46] DMD config: own few-step LoRA from scratch (no Plug
+Subject: [PATCH 24/50] DMD config: own few-step LoRA from scratch (no Plug
  init)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2694,7 +2694,7 @@ index 0000000..59d166e
 From 432f7ad43d2a26e790aa380985d5e8eb83b10667 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 14:09:58 +0800
-Subject: [PATCH 25/46] infer config: frame-sink variant
+Subject: [PATCH 25/50] infer config: frame-sink variant
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -2752,7 +2752,7 @@ index 0000000..6e54c01
 From bb6edea89b4f67465631b0068e6bdfc924254bd8 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 15:00:32 +0800
-Subject: [PATCH 26/46] DMD LoRA mode: EMA of the generator LoRA
+Subject: [PATCH 26/50] DMD LoRA mode: EMA of the generator LoRA
  (generator_lora_ema); thermal_eval uses it by default
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -2897,7 +2897,7 @@ index d11dfef..c9c9268 100644
 From 7e36c8551280b1a148200ccf382f3d12f36011ea Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 15:02:49 +0800
-Subject: [PATCH 27/46] DMD long-rollout tuning: interleave-aware slicing (RGB
+Subject: [PATCH 27/50] DMD long-rollout tuning: interleave-aware slicing (RGB
  view for loss helpers), long config + smoke
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3259,7 +3259,7 @@ index 6889840..d3545a6 100644
 From 295773dc7b7ad686cc351cd0a16910f2a656feb3 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 15:02:59 +0800
-Subject: [PATCH 28/46] smoke long: max_iters after resume step
+Subject: [PATCH 28/50] smoke long: max_iters after resume step
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -3287,7 +3287,7 @@ index 10cc029..f41940e 100644
 From 31e38f01aedce28d31d4ccdbe36c899c59329ec7 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 16:09:15 +0800
-Subject: [PATCH 29/46] long DMD: 162-frame rollouts on Hopper, lora_ckpt via
+Subject: [PATCH 29/50] long DMD: 162-frame rollouts on Hopper, lora_ckpt via
  best.pt
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3341,7 +3341,7 @@ index 261d052..c2c0a5f 100644
 From 78a0e389003dff8a4cca1651d41ce0b9b3d0d728 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 16:53:37 +0800
-Subject: [PATCH 30/46] LoraEMA: define after imports (NameError: torch)
+Subject: [PATCH 30/50] LoraEMA: define after imports (NameError: torch)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -3425,7 +3425,7 @@ index c9c9268..9f18d1e 100644
 From 2005eb8afe7f9a09d4023071088bd02663425458 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 17:24:52 +0800
-Subject: [PATCH 31/46] long-rollout DMD: compact rolling KV cache before the
+Subject: [PATCH 31/50] long-rollout DMD: compact rolling KV cache before the
  gradient region (checkpoint recompute mismatch)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3485,7 +3485,7 @@ index 3296b20..3478b34 100644
 From bdaf78f6973f9e0b6aad4e5d75baef3c3c438735 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 17:25:06 +0800
-Subject: [PATCH 32/46] trainer: re-raise after logging a crash (non-zero exit
+Subject: [PATCH 32/50] trainer: re-raise after logging a crash (non-zero exit
  for the farm)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3513,7 +3513,7 @@ index 9f18d1e..eb67b23 100644
 From 167f1137e07a293256ba3d5d00f3a3eec2a6f29d Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:13:18 +0800
-Subject: [PATCH 33/46] structured captions: per-file rgb2thermal caption from
+Subject: [PATCH 33/50] structured captions: per-file rgb2thermal caption from
  latent metadata (thermal_prompt: structured)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3602,7 +3602,7 @@ index f7b14f0..eab5431 100644
 From 6dc3cb1fe393035304e6adb4b25a0da5bd0adab2 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:22:12 +0800
-Subject: [PATCH 34/46] self-forcing rollout: keep attention overrides for the
+Subject: [PATCH 34/50] self-forcing rollout: keep attention overrides for the
  checkpoint recompute in backward
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3635,7 +3635,7 @@ index 3478b34..266ba3a 100644
 From 7e9e2cc5449b81af78b180e8be0b490e405f5869 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:46:23 +0800
-Subject: [PATCH 35/46] stage-2 configs: env paths, multi-source 81f data,
+Subject: [PATCH 35/50] stage-2 configs: env paths, multi-source 81f data,
  structured captions; multi-dir thermal dataset
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -3856,7 +3856,7 @@ index eab5431..f9b22cb 100644
 From 5dd579dfe83311a5c8f991cc8ef72cce2106b4f0 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:47:58 +0800
-Subject: [PATCH 36/46] stage-2 smoke config
+Subject: [PATCH 36/50] stage-2 smoke config
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -3972,7 +3972,7 @@ index 0000000..5eb7add
 From 2f4d2f93658575e66c52abc4f632484ae02a3b25 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 18:50:20 +0800
-Subject: [PATCH 37/46] stage-2 smoke: no checkpoint
+Subject: [PATCH 37/50] stage-2 smoke: no checkpoint
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -4006,7 +4006,7 @@ index 5eb7add..c3d63dd 100644
 From 77c965029ee63df7af5adf48cbdd75a1c855a44d Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 18:50:32 +0800
-Subject: [PATCH 38/46] stage-2 smoke: no_save
+Subject: [PATCH 38/50] stage-2 smoke: no_save
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -4033,7 +4033,7 @@ index c3d63dd..5f37ac9 100644
 From d7a10aeab13289f66a2e0e4288f47746950027ee Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 18:52:33 +0800
-Subject: [PATCH 39/46] captions: load thermal_v2v captions.py by path (name
+Subject: [PATCH 39/50] captions: load thermal_v2v captions.py by path (name
  clash with HF datasets)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -4089,7 +4089,7 @@ index f9b22cb..4ac2e54 100644
 From 140727ea1851deb81c3d1721a689becbc2b094d9 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 19:39:05 +0800
-Subject: [PATCH 40/46] AR trainer: wandb online/offline by env, local
+Subject: [PATCH 40/50] AR trainer: wandb online/offline by env, local
  train_log.jsonl, timed thermal streaming eval (mp4 + metrics)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -4295,7 +4295,7 @@ index a7011cf..38f1e15 100644
 From 22a01165636e9f35220f83b4bfc9aabdacb9847a Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 20:03:23 +0800
-Subject: [PATCH 41/46] thermal eval: free inference KV caches after eval
+Subject: [PATCH 41/50] thermal eval: free inference KV caches after eval
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -4324,7 +4324,7 @@ index 38f1e15..5306e9d 100644
 From f8c362f66740b995346449040e394be627841643 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 20:25:30 +0800
-Subject: [PATCH 42/46] self-forcing rollout: assert the interleaved RoPE
+Subject: [PATCH 42/50] self-forcing rollout: assert the interleaved RoPE
  offset every block
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -4353,7 +4353,7 @@ index 266ba3a..0c0351b 100644
 From 473732be8e8f18693c1fbc73a14c8a83388d4862 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 21:16:59 +0800
-Subject: [PATCH 43/46] rollout RoPE assertion: check the real CausalWanModel
+Subject: [PATCH 43/50] rollout RoPE assertion: check the real CausalWanModel
  (peft wrapper shadows the attribute)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -4389,7 +4389,7 @@ index 0c0351b..9590a78 100644
 From 7e81f8ffe0fe4bb27c2e2b4d61b6f71d3ed478e4 Mon Sep 17 00:00:00 2001
 From: yky <greenery8848@gmail.com>
 Date: Fri, 16 Oct 2026 22:48:38 +0800
-Subject: [PATCH 44/46] S7/S8: stage-3 DMD + long-rollout configs (env paths,
+Subject: [PATCH 44/50] S7/S8: stage-3 DMD + long-rollout configs (env paths,
  structured captions, multi-source), DMD trainer wandb/jsonl/timed thermal
  eval (short + long stream), smoke configs
 
@@ -5126,7 +5126,7 @@ index eb67b23..0a92c5c 100644
 From 06442facc063ac151b9053d61e9bea4aa5f3eedc Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 22:49:26 +0800
-Subject: [PATCH 45/46] DMD thermal eval: evaluate each val file at its own
+Subject: [PATCH 45/50] DMD thermal eval: evaluate each val file at its own
  length
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -5155,7 +5155,7 @@ index 0a92c5c..eaaa13c 100644
 From 79e231a1a72478c1b818da3458e44cbcd3fc06c3 Mon Sep 17 00:00:00 2001
 From: Yan Keyu <yky@hopper-l-02.cm.cluster>
 Date: Fri, 16 Oct 2026 22:55:24 +0800
-Subject: [PATCH 46/46] wandb init: tolerate configs without wandb_* keys
+Subject: [PATCH 46/50] wandb init: tolerate configs without wandb_* keys
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
@@ -5198,6 +5198,797 @@ index eaaa13c..6fec17f 100644
                  resume="allow"
              )
  
+-- 
+2.52.0
+
+
+From 1d16a11f9a0f832d70ec10dc1205db8252726995 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Fri, 16 Oct 2026 23:38:52 +0800
+Subject: [PATCH 47/50] DMD: optional ground-truth regression term
+ (gt_regression_weight) on the scored slice; A/B config
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ .../thermal/train_dmd_r2t_long_gtreg.yaml     | 115 ++++++++++++++++++
+ LongLive2.0/model/base.py                     |   3 +
+ LongLive2.0/model/dmd.py                      |  18 +++
+ LongLive2.0/trainer/distillation.py           |   5 +-
+ LongLive2.0/utils/i2v_conditioning.py         |  14 ++-
+ 5 files changed, 153 insertions(+), 2 deletions(-)
+ create mode 100644 LongLive2.0/configs/thermal/train_dmd_r2t_long_gtreg.yaml
+
+diff --git a/LongLive2.0/configs/thermal/train_dmd_r2t_long_gtreg.yaml b/LongLive2.0/configs/thermal/train_dmd_r2t_long_gtreg.yaml
+new file mode 100644
+index 0000000..89d9a0e
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/train_dmd_r2t_long_gtreg.yaml
+@@ -0,0 +1,115 @@
++# A/B arm of train_dmd_r2t_long.yaml (⑥): same start (own-DMD s100) and settings + GT regression (weight 0.25) to anchor the
++# tone (distilled students run ~5% more near-white pixels than real). Compare with ll_dmd_long at equal steps.
++# thermal-v2v: LONG-ROLLOUT tuning of our own few-step LoRA (LongLive "streaming long tuning", Plug-style: base frozen,
++# LoRA only). The student self-rolls 84..162 interleaved frames (up to 81 RGB/thermal pairs = ~32 s) with a rolling
++# 21-pair KV window + a 1-pair frame sink, and the bidirectional teacher / critic score only the LAST 21 pairs, so the
++# student learns to stay on-distribution far beyond the window. Starts from the short-window LoRA (lora_ckpt).
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  real_score_fsdp_wrap_strategy: size
++  fake_score_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: 42
++  sink_size: 2
++  interleave_cond: true
++
++real_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++fake_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++checkpoints:
++  generator_ckpt: /hpctmp/yky/thermal_v2v/models/longlive/v1_ema_step2000.pt
++  lora_ckpt: /hpctmp/yky/thermal_v2v/runs/ll_dmd_r2t_own/keep/best.pt  # symlink -> best short-window step (read at first start only)
++
++algorithm:
++  trainer: score_distillation
++  distribution_loss: dmd
++  i2v: false
++  all_causal: true
++  generator_is_causal: true
++  backward_simulation: true
++  teacher_forcing: false
++  independent_first_frame: false
++  ts_schedule: false
++  real_guidance_scale: 1.0
++  fake_guidance_scale: 0.0
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  lr_critic: 2.0e-06
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  beta1_critic: 0.0
++  beta2_critic: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.0
++  # thermal-v2v: EMA of the LoRA weights only (upstream disables EMA in LoRA mode). Saved as generator_lora_ema;
++  # thermal_eval.py --lora_ckpt uses it by default (--lora_raw for raw). Enabled at step ~250 on resume.
++  lora_ema_weight: 0.99
++  gt_regression_weight: 0.25   # MSE(student thermal latents, real thermal latents) on the scored slice
++  ema_start_step: 100000
++  log_iters: 100
++  max_checkpoints: 3
++  max_iters: 2000
++  gc_interval: 100
++  dfake_gen_update_ratio: 5
++  min_num_training_frames: 84
++  num_training_frames: 162  # Hopper prototype: up to 81 pairs (~32 s = 4x the window); H20 run: 242+
++  slice_last_frames: 42
++
++data:
++  data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_481f_s480/train
++  eval_data_path: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_81f_s40/val
++  thermal_latent_dir: /hpctmp/yky/thermal_v2v/data/processed/tartanrgbt/latents_481f_s480/train
++  thermal_prompt: transfer rgb to thermal
++  image_or_video_shape:
++  - 1
++  - 162
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 4
++  sink_size: 2
++  local_attn_size: 42
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++
++adapter:
++  type: lora
++  rank: 128
++  alpha: 128
++  dropout: 0.0
++  apply_to_critic: true
++
++logging:
++  seed: 0
++  wandb_project: thermal-v2v-dmd-long
++
+diff --git a/LongLive2.0/model/base.py b/LongLive2.0/model/base.py
+index 58e1999..4d4ed94 100644
+--- a/LongLive2.0/model/base.py
++++ b/LongLive2.0/model/base.py
+@@ -346,6 +346,9 @@ class SelfForcingModel(BaseModel):
+             assert n_gen % 2 == 0 and keep % 2 == 0, (n_gen, keep)
+             pred_image_or_video_sliced = pred_image_or_video[:, n_gen - keep:]
+             set_interleave_view(ll_full[:, (n_gen - keep) // 2: n_gen // 2])
++            from utils.i2v_conditioning import _LL_COND, set_interleave_target
++            if _LL_COND["target"] is not None:
++                set_interleave_target(None, _LL_COND["target"][:, (n_gen - keep) // 2: n_gen // 2])
+             gradient_mask = None
+             if num_generated_frames != min_num_frames:
+                 gradient_mask = torch.ones_like(pred_image_or_video_sliced, dtype=torch.bool)
+diff --git a/LongLive2.0/model/dmd.py b/LongLive2.0/model/dmd.py
+index 3b1ba17..258a0c0 100644
+--- a/LongLive2.0/model/dmd.py
++++ b/LongLive2.0/model/dmd.py
+@@ -345,6 +345,24 @@ class DMD(SelfForcingModel):
+             clean_x=score_clean_x,
+             initial_latent=initial_latent if pred_image.shape[1] == image_or_video_shape[1] else None,
+         )
++        # thermal-v2v: optional ground-truth regression. V2V is paired: for a given RGB stream the thermal answer is
++        # (nearly) unique and in the dataset, so the student's few-step output is also pulled toward the real thermal
++        # (MSE in the normalised latent space, thermal frames of the scored slice, first block masked like the DMD
++        # gradient). Anchors the tone (the distilled students drifted brighter than the real data).
++        gt_w = float(getattr(self.args, "gt_regression_weight", 0.0) or 0.0)
++        if gt_w > 0:
++            from utils.i2v_conditioning import get_interleave_target
++            gt = get_interleave_target()
++            if gt is not None and pred_image.shape[1] == 2 * gt.shape[1]:
++                pred_th = pred_image[:, 1::2].float()
++                err = (pred_th - gt.to(pred_th.device, torch.float32)) ** 2
++                if gradient_mask is not None:
++                    m = gradient_mask[:, 1::2].float()
++                    reg = (err * m).sum() / m.sum().clamp_min(1.0)
++                else:
++                    reg = err.mean()
++                dmd_loss = dmd_loss + gt_w * reg
++                dmd_log_dict["gt_regression_loss"] = reg.detach()
+         try:
+             loss_val = dmd_loss.item()
+         except Exception:
+diff --git a/LongLive2.0/trainer/distillation.py b/LongLive2.0/trainer/distillation.py
+index 6fec17f..48e77ed 100644
+--- a/LongLive2.0/trainer/distillation.py
++++ b/LongLive2.0/trainer/distillation.py
+@@ -1081,9 +1081,10 @@ class Trainer:
+ 
+         # thermal-v2v: register this batch's clean RGB latents (even frames of the interleaved clip)
+         if getattr(self.config, "interleave_cond", False):
+-            from utils.i2v_conditioning import set_interleave_cond
++            from utils.i2v_conditioning import set_interleave_cond, set_interleave_target
+             _inter = batch["ode_latent"][:, -1].to(device=self.device, dtype=self.dtype)
+             set_interleave_cond(_inter[:, 0::2].contiguous())
++            set_interleave_target(_inter[:, 1::2].contiguous())   # GT thermal (optional GT regression term)
+ 
+         # Step 1.5: Prepare clean_latent and initial_latent for off-policy mode
+         clean_latent = None
+@@ -1331,6 +1332,8 @@ class Trainer:
+                                 "dmdtrain_gradient_norm": generator_log_dict["dmdtrain_gradient_norm"].mean().item()
+                             }
+                         )
++                        if "gt_regression_loss" in generator_log_dict:
++                            wandb_loss_dict["gt_regression_loss"] = generator_log_dict["gt_regression_loss"].mean().item()
+ 
+ 
+                     wandb_loss_dict.update(
+diff --git a/LongLive2.0/utils/i2v_conditioning.py b/LongLive2.0/utils/i2v_conditioning.py
+index d3545a6..2bc83d1 100644
+--- a/LongLive2.0/utils/i2v_conditioning.py
++++ b/LongLive2.0/utils/i2v_conditioning.py
+@@ -2,7 +2,7 @@ import torch
+ 
+ # thermal-v2v: interleaved [RGB_0, T_0, RGB_1, T_1, ...] conditioning for DMD / self-forcing. When set, the helpers
+ # below also clamp / zero-timestep / loss-mask every even (RGB) frame of FULL-length videos (2 * num_pairs frames).
+-_LL_COND = {"cond": None, "view": None}
++_LL_COND = {"cond": None, "view": None, "target": None, "target_view": None}
+ 
+ 
+ def set_interleave_cond(cond):
+@@ -15,6 +15,18 @@ def get_interleave_cond():
+     return _LL_COND["cond"]
+ 
+ 
++def set_interleave_target(target, view=None):
++    """Ground-truth thermal latents [B, num_pairs, C, H, W] of the current batch (odd frames), and the slice matching
++    the frames the DMD loss sees (set with set_interleave_view). Used by the optional GT regression term."""
++    if target is not None:
++        _LL_COND["target"] = target
++    _LL_COND["target_view"] = view
++
++
++def get_interleave_target():
++    return _LL_COND["target_view"] if _LL_COND["target_view"] is not None else _LL_COND["target"]
++
++
+ def set_interleave_view(view):
+     """The RGB latents matching the video the DMD / critic losses see: a rollout may be shorter than the clip and
+     long-rollout tuning keeps only its last slice_last_frames frames. None = the whole clip."""
+-- 
+2.52.0
+
+
+From c9f7436ab63583975824fd3188ccf0c15d196357 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Sat, 17 Oct 2026 00:30:18 +0800
+Subject: [PATCH 48/50] S8b config: long-rollout tuning + GT regression (and
+ smoke)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ .../configs/thermal/stage3_long_gtreg.yaml    | 124 ++++++++++++++++++
+ .../thermal/stage3_long_gtreg_smoke.yaml      | 124 ++++++++++++++++++
+ 2 files changed, 248 insertions(+)
+ create mode 100644 LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
+ create mode 100644 LongLive2.0/configs/thermal/stage3_long_gtreg_smoke.yaml
+
+diff --git a/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml b/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
+new file mode 100644
+index 0000000..c4d0eb0
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
+@@ -0,0 +1,124 @@
++# thermal-v2v S8b -> model ⑥b: stage3_long.yaml (S8a) + a ground-truth regression term (gt_regression_weight): the student's
++# thermal latents on the scored slice are also pulled toward the real thermal (paired data), to anchor the tone (plain
++# DMD students ran ~5% more near-white pixels than real). Same launcher: STAGE3_CONFIG=configs/thermal/stage3_long_gtreg.yaml.
++# thermal-v2v S8 -> model ⑥: long-rollout tuning of the S7 LoRA (LongLive "streaming long tuning", base frozen).
++# The student self-rolls 84..162 interleaved frames (up to 81 RGB/thermal pairs) with a rolling 21-pair KV window and a
++# 1-pair frame sink; the bidirectional teacher / critic score only the LAST 21 pairs, so the student learns to stay
++# on-distribution far beyond the window. Prototype (1xH200): at step 200 the 4-min val stream went from pearson 0.72
++# (30-step AR, slowly washing out) to 0.90 (4 steps), short clips unchanged. Inference must use the same sink
++# (configs/thermal/stage3_infer_long.yaml). Launch: thermal_v2v scripts/stage3/train_long.sh
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  real_score_fsdp_wrap_strategy: size
++  fake_score_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: 42
++  sink_size: 2
++  interleave_cond: true
++
++real_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++fake_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++checkpoints:
++  generator_ckpt: ${oc.env:STAGE2_CKPT}   # S6 stage-2 AR checkpoint (an EMA snapshot <run>/snapshots/step_*.pt or checkpoint_model_*/model.pt)
++  lora_ckpt: ${oc.env:STAGE3_LORA}   # chosen S7 checkpoint (<S7 logdir>/checkpoint_model_*/model.pt); read at first start only
++
++algorithm:
++  trainer: score_distillation
++  distribution_loss: dmd
++  i2v: false
++  all_causal: true
++  generator_is_causal: true
++  backward_simulation: true
++  teacher_forcing: false
++  independent_first_frame: false
++  ts_schedule: false
++  real_guidance_scale: 1.0
++  fake_guidance_scale: 0.0
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  lr_critic: 2.0e-06
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  beta1_critic: 0.0
++  beta2_critic: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.0
++  # thermal-v2v: EMA of the LoRA weights only (upstream disables EMA in LoRA mode). Saved as generator_lora_ema;
++  # thermal_eval.py --lora_ckpt uses it by default (--lora_raw for raw). Enabled at step ~250 on resume.
++  lora_ema_weight: 0.99
++  gt_regression_weight: 0.25   # MSE(student thermal latents, real thermal latents) on the scored slice
++  ema_start_step: 100000
++  log_iters: 100
++  max_checkpoints: 3
++  max_iters: 1100   # counts on from the S7 step it starts from (lora_ckpt)
++  gc_interval: 100
++  dfake_gen_update_ratio: 5
++  min_num_training_frames: 84
++  num_training_frames: 162  # Hopper prototype: up to 81 pairs (~32 s = 4x the window); H20 run: 242+
++  slice_last_frames: 42
++
++data:
++  data_path: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_481f/train
++  eval_data_path: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/val
++  thermal_latent_dir: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_481f/train,${oc.env:THERMAL_DATA}/latents/kaist_481f/train
++  thermal_prompt: structured
++  image_or_video_shape:
++  - 1
++  - 162
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 4
++  sink_size: 2
++  local_attn_size: 42
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++  # thermal-v2v: timed eval of the current student (4 steps, sink 2): short val clips + the 4-min val stream
++  thermal_eval_dir: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/val
++  thermal_eval_long_file: ${oc.env:THERMAL_LONG_VAL}
++  thermal_eval_minutes: 60
++  thermal_eval_at_start: true
++  thermal_eval_n: 2
++
++adapter:
++  type: lora
++  rank: 128
++  alpha: 128
++  dropout: 0.0
++  apply_to_critic: true
++
++logging:
++  seed: 0
++  wandb_project: thermal_v2v-long
++
+diff --git a/LongLive2.0/configs/thermal/stage3_long_gtreg_smoke.yaml b/LongLive2.0/configs/thermal/stage3_long_gtreg_smoke.yaml
+new file mode 100644
+index 0000000..794ef4c
+--- /dev/null
++++ b/LongLive2.0/configs/thermal/stage3_long_gtreg_smoke.yaml
+@@ -0,0 +1,124 @@
++# SMOKE of stage3_long_gtreg.yaml
++# SMOKE TEST (scripts/smoke_test.sh): 2 iterations, no checkpoint; STAGE2_CKPT / STAGE3_LORA optional (unset = start from the teacher / a fresh LoRA).
++# thermal-v2v S8 -> model ⑥: long-rollout tuning of the S7 LoRA (LongLive "streaming long tuning", base frozen).
++# The student self-rolls 84..162 interleaved frames (up to 81 RGB/thermal pairs) with a rolling 21-pair KV window and a
++# 1-pair frame sink; the bidirectional teacher / critic score only the LAST 21 pairs, so the student learns to stay
++# on-distribution far beyond the window. Prototype (1xH200): at step 200 the 4-min val stream went from pearson 0.72
++# (30-step AR, slowly washing out) to 0.90 (4 steps), short clips unchanged. Inference must use the same sink
++# (configs/thermal/stage3_infer_long.yaml). Launch: thermal_v2v scripts/stage3/train_long.sh
++infra:
++  sequence_parallel_size: 1
++  sharding_strategy: full
++  mixed_precision: true
++  gradient_checkpointing: true
++  generator_fsdp_wrap_strategy: size
++  real_score_fsdp_wrap_strategy: size
++  fake_score_fsdp_wrap_strategy: size
++  text_encoder_fsdp_wrap_strategy: size
++
++model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 2
++  local_attn_size: 42
++  sink_size: 2
++  interleave_cond: true
++
++real_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++fake_model_kwargs:
++  model_name: Wan2.2-TI2V-5B
++  timestep_shift: 5.0
++  num_frame_per_block: 42
++  local_attn_size: -1
++  interleave_cond: true
++
++checkpoints:
++  generator_ckpt: ${oc.env:STAGE2_CKPT,null}   # S6 stage-2 AR checkpoint (an EMA snapshot <run>/snapshots/step_*.pt or checkpoint_model_*/model.pt)
++  lora_ckpt: ${oc.env:STAGE3_LORA,null}   # chosen S7 checkpoint (<S7 logdir>/checkpoint_model_*/model.pt); read at first start only
++
++algorithm:
++  trainer: score_distillation
++  distribution_loss: dmd
++  i2v: false
++  all_causal: true
++  generator_is_causal: true
++  backward_simulation: true
++  teacher_forcing: false
++  independent_first_frame: false
++  ts_schedule: false
++  real_guidance_scale: 1.0
++  fake_guidance_scale: 0.0
++  interleave_cond: true
++
++training:
++  lr: 1.0e-05
++  lr_critic: 2.0e-06
++  weight_decay: 0.0
++  beta1: 0.0
++  beta2: 0.999
++  beta1_critic: 0.0
++  beta2_critic: 0.999
++  batch_size: 1
++  gradient_accumulation_steps: 1
++  ema_weight: 0.0
++  # thermal-v2v: EMA of the LoRA weights only (upstream disables EMA in LoRA mode). Saved as generator_lora_ema;
++  # thermal_eval.py --lora_ckpt uses it by default (--lora_raw for raw). Enabled at step ~250 on resume.
++  lora_ema_weight: 0.99
++  gt_regression_weight: 0.25   # MSE(student thermal latents, real thermal latents) on the scored slice
++  ema_start_step: 100000
++  log_iters: 100
++  max_checkpoints: 3
++  max_iters: 2
++  no_save: true
++  gc_interval: 100
++  dfake_gen_update_ratio: 5
++  min_num_training_frames: 84
++  num_training_frames: 162  # Hopper prototype: up to 81 pairs (~32 s = 4x the window); H20 run: 242+
++  slice_last_frames: 42
++
++data:
++  data_path: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_481f/train
++  eval_data_path: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/val
++  thermal_latent_dir: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_481f/train,${oc.env:THERMAL_DATA}/latents/kaist_481f/train
++  thermal_prompt: structured
++  image_or_video_shape:
++  - 1
++  - 162
++  - 48
++  - 32
++  - 40
++  load_raw_video: false
++
++inference:
++  sampling_steps: 4
++  sink_size: 2
++  local_attn_size: 42
++  independent_first_frame: false
++  negative_prompt: ''
++
++evaluation:
++  interval: 0
++  # thermal-v2v: timed eval of the current student (4 steps, sink 2): short val clips + the 4-min val stream
++  thermal_eval_dir: ${oc.env:THERMAL_DATA}/latents/tartanrgbt_81f/val
++  thermal_eval_long_file: ${oc.env:THERMAL_LONG_VAL,null}
++  thermal_eval_minutes: 60
++  thermal_eval_at_start: true
++  thermal_eval_n: 1
++
++adapter:
++  type: lora
++  rank: 128
++  alpha: 128
++  dropout: 0.0
++  apply_to_critic: true
++
++logging:
++  seed: 0
++  wandb_project: thermal_v2v-long
++
+-- 
+2.52.0
+
+
+From ef53ccf1bc27991bab1a69cc5dc392b3b5b28e85 Mon Sep 17 00:00:00 2001
+From: yky <greenery8848@gmail.com>
+Date: Sat, 17 Oct 2026 00:48:03 +0800
+Subject: [PATCH 49/50] Review fixes: S7/S8 init on EMA AR weights, wandb
+ per-run id + login-aware mode, write-then-delete stage-2 checkpoints,
+ retention, project names
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NBTj3S3TNdiismT1XzBazh
+---
+ LongLive2.0/configs/thermal/stage2_ar.yaml    |  4 +--
+ LongLive2.0/configs/thermal/stage3_dmd.yaml   |  2 +-
+ LongLive2.0/configs/thermal/stage3_long.yaml  |  4 +--
+ .../configs/thermal/stage3_long_gtreg.yaml    |  4 +--
+ .../thermal/stage3_long_gtreg_smoke.yaml      |  2 +-
+ .../configs/thermal/stage3_long_smoke.yaml    |  2 +-
+ LongLive2.0/configs/thermal/train_ar_r2t.yaml |  1 +
+ .../configs/thermal/train_ar_r2t_v2.yaml      |  1 +
+ LongLive2.0/trainer/diffusion.py              | 29 +++++++++++++------
+ LongLive2.0/trainer/distillation.py           | 14 +++++++--
+ 10 files changed, 43 insertions(+), 20 deletions(-)
+
+diff --git a/LongLive2.0/configs/thermal/stage2_ar.yaml b/LongLive2.0/configs/thermal/stage2_ar.yaml
+index 8cc39f3..e7b204f 100644
+--- a/LongLive2.0/configs/thermal/stage2_ar.yaml
++++ b/LongLive2.0/configs/thermal/stage2_ar.yaml
+@@ -44,7 +44,7 @@ training:
+   max_iters: 3000         # phase-2 Hopper prototype used step 2000 (EMA); pick by eval
+   gc_interval: 100
+   save_optimizer: false
+-  max_snapshots: 3
++  max_snapshots: 6   # bf16 EMA snapshots (~10 GB each) = the step candidates for S6 -> S7
+   error_recycling:
+     enabled: true
+     num_buckets: 50
+@@ -95,4 +95,4 @@ logging:
+   seed: 0
+   wandb_key: null
+   wandb_entity: null
+-  wandb_project: thermal-v2v-stage2-ar
++  wandb_project: thermal_v2v
+diff --git a/LongLive2.0/configs/thermal/stage3_dmd.yaml b/LongLive2.0/configs/thermal/stage3_dmd.yaml
+index 92bac8b..613f983 100644
+--- a/LongLive2.0/configs/thermal/stage3_dmd.yaml
++++ b/LongLive2.0/configs/thermal/stage3_dmd.yaml
+@@ -68,7 +68,7 @@ training:
+   lora_ema_weight: 0.99
+   ema_start_step: 100000
+   log_iters: 100
+-  max_checkpoints: 3
++  max_checkpoints: 10   # LoRA checkpoints (~4 GB each) kept for picking the step by the evals
+   max_iters: 1000
+   gc_interval: 100
+   dfake_gen_update_ratio: 5
+diff --git a/LongLive2.0/configs/thermal/stage3_long.yaml b/LongLive2.0/configs/thermal/stage3_long.yaml
+index fb0e82c..34b13c5 100644
+--- a/LongLive2.0/configs/thermal/stage3_long.yaml
++++ b/LongLive2.0/configs/thermal/stage3_long.yaml
+@@ -70,7 +70,7 @@ training:
+   lora_ema_weight: 0.99
+   ema_start_step: 100000
+   log_iters: 100
+-  max_checkpoints: 3
++  max_checkpoints: 10   # LoRA checkpoints (~4 GB each) kept for picking the step by the evals
+   max_iters: 1100   # counts on from the S7 step it starts from (lora_ckpt)
+   gc_interval: 100
+   dfake_gen_update_ratio: 5
+@@ -116,5 +116,5 @@ adapter:
+ 
+ logging:
+   seed: 0
+-  wandb_project: thermal_v2v-long
++  wandb_project: thermal_v2v
+ 
+diff --git a/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml b/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
+index c4d0eb0..7ee4cc7 100644
+--- a/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
++++ b/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
+@@ -74,7 +74,7 @@ training:
+   gt_regression_weight: 0.25   # MSE(student thermal latents, real thermal latents) on the scored slice
+   ema_start_step: 100000
+   log_iters: 100
+-  max_checkpoints: 3
++  max_checkpoints: 10   # LoRA checkpoints (~4 GB each) kept for picking the step by the evals
+   max_iters: 1100   # counts on from the S7 step it starts from (lora_ckpt)
+   gc_interval: 100
+   dfake_gen_update_ratio: 5
+@@ -120,5 +120,5 @@ adapter:
+ 
+ logging:
+   seed: 0
+-  wandb_project: thermal_v2v-long
++  wandb_project: thermal_v2v
+ 
+diff --git a/LongLive2.0/configs/thermal/stage3_long_gtreg_smoke.yaml b/LongLive2.0/configs/thermal/stage3_long_gtreg_smoke.yaml
+index 794ef4c..8840b92 100644
+--- a/LongLive2.0/configs/thermal/stage3_long_gtreg_smoke.yaml
++++ b/LongLive2.0/configs/thermal/stage3_long_gtreg_smoke.yaml
+@@ -120,5 +120,5 @@ adapter:
+ 
+ logging:
+   seed: 0
+-  wandb_project: thermal_v2v-long
++  wandb_project: thermal_v2v
+ 
+diff --git a/LongLive2.0/configs/thermal/stage3_long_smoke.yaml b/LongLive2.0/configs/thermal/stage3_long_smoke.yaml
+index a46fc8d..839f529 100644
+--- a/LongLive2.0/configs/thermal/stage3_long_smoke.yaml
++++ b/LongLive2.0/configs/thermal/stage3_long_smoke.yaml
+@@ -118,5 +118,5 @@ adapter:
+ 
+ logging:
+   seed: 0
+-  wandb_project: thermal_v2v-long
++  wandb_project: thermal_v2v
+ 
+diff --git a/LongLive2.0/configs/thermal/train_ar_r2t.yaml b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+index 114d48d..63491ff 100644
+--- a/LongLive2.0/configs/thermal/train_ar_r2t.yaml
++++ b/LongLive2.0/configs/thermal/train_ar_r2t.yaml
+@@ -42,6 +42,7 @@ training:
+   max_iters: 6000
+   gc_interval: 100
+   save_optimizer: false
++  delete_old_checkpoint_first: true   # Hopper /hpctmp quota
+   max_snapshots: 3
+   error_recycling:
+     enabled: true
+diff --git a/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml b/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
+index 968a519..afd1ea5 100644
+--- a/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
++++ b/LongLive2.0/configs/thermal/train_ar_r2t_v2.yaml
+@@ -43,6 +43,7 @@ training:
+   max_iters: 800
+   gc_interval: 100
+   save_optimizer: false
++  delete_old_checkpoint_first: true   # Hopper /hpctmp quota
+   max_snapshots: 3
+   error_recycling:
+     enabled: false
+diff --git a/LongLive2.0/trainer/diffusion.py b/LongLive2.0/trainer/diffusion.py
+index 8fe9d97..e9584bd 100644
+--- a/LongLive2.0/trainer/diffusion.py
++++ b/LongLive2.0/trainer/diffusion.py
+@@ -42,6 +42,11 @@ def _ev_module():
+     return _EV
+ 
+ 
++def _wb_helpers():
++    """thermal_v2v wandb helpers (per-run-dir id, login-aware mode) when THERMAL_V2V_REPO is set, else None."""
++    return _ev_module() if os.environ.get("THERMAL_V2V_REPO") else None
++
++
+ def save_prompts_to_txt(prompts_for_sample, prompt_txt_path: str, is_main_process: bool):
+     """
+     Save prompts for one generated video to a txt file.
+@@ -124,9 +129,9 @@ class Trainer:
+             wandb.init(
+                 config=OmegaConf.to_container(config, resolve=True),
+                 name=_name,
+-                id=os.environ.get("WANDB_RUN_ID") or _name,
++                id=(_wb_helpers().wandb_run_id(str(config.logdir)) if _wb_helpers() else (os.environ.get("WANDB_RUN_ID") or _name)),
+                 resume="allow",
+-                mode=os.environ.get("WANDB_MODE") or ("online" if (os.environ.get("WANDB_API_KEY") or getattr(config, "wandb_key", None)) else "offline"),
++                mode=(_wb_helpers().wandb_mode() if _wb_helpers() else (os.environ.get("WANDB_MODE") or ("online" if (os.environ.get("WANDB_API_KEY") or getattr(config, "wandb_key", None)) else "offline"))),
+                 entity=os.environ.get("WANDB_ENTITY") or getattr(config, "wandb_entity", None),
+                 project=os.environ.get("WANDB_PROJECT") or getattr(config, "wandb_project", None) or "thermal_v2v",
+                 dir=getattr(config, "wandb_save_dir", None) or str(config.logdir)
+@@ -746,18 +751,24 @@ class Trainer:
+             snaps = sorted(f for f in os.listdir(snap_dir) if f.startswith("step_") and f.endswith(".pt"))
+             for f in snaps[:-int(getattr(self.config, "max_snapshots", 3))]:
+                 os.remove(os.path.join(snap_dir, f))
+-            # free the previous full checkpoint BEFORE writing the new one (disk is the binding constraint);
+-            # the snapshot just written is the fallback if this save fails.
++            # previous full checkpoint(s): by default removed only AFTER the new one is on disk (a save killed by
++            # walltime then still leaves a resumable checkpoint); delete_old_checkpoint_first: true frees the disk first
++            # (needs only one checkpoint of space; the snapshot just written is then the fallback)
+             import shutil
+-            for item in os.listdir(self.output_path):
+-                old_dir = os.path.join(self.output_path, item)
+-                if item.startswith("checkpoint_model_") and old_dir != checkpoint_dir and os.path.isdir(old_dir):
+-                    shutil.rmtree(old_dir, ignore_errors=True)
+-                    print("Removed old full checkpoint", old_dir)
++            olds = [os.path.join(self.output_path, it) for it in os.listdir(self.output_path)
++                    if it.startswith("checkpoint_model_") and os.path.isdir(os.path.join(self.output_path, it))
++                    and os.path.join(self.output_path, it) != checkpoint_dir]
++            first = bool(getattr(self.config, "delete_old_checkpoint_first", False))
++            for old_dir in (olds if first else []):
++                shutil.rmtree(old_dir, ignore_errors=True)
++                print("Removed old full checkpoint", old_dir)
+             os.makedirs(checkpoint_dir, exist_ok=True)
+             checkpoint_file = os.path.join(checkpoint_dir, "model.pt")
+             _safe_save(state_dict, checkpoint_file)
+             print("Model saved to", checkpoint_file)
++            for old_dir in ([] if first else olds):
++                shutil.rmtree(old_dir, ignore_errors=True)
++                print("Removed old full checkpoint", old_dir)
+ 
+         # Save error buffer — unified per-sp_rank pattern:
+         #   Each SP rank owns a different t-bucket shard (and different
+diff --git a/LongLive2.0/trainer/distillation.py b/LongLive2.0/trainer/distillation.py
+index 48e77ed..02bf582 100644
+--- a/LongLive2.0/trainer/distillation.py
++++ b/LongLive2.0/trainer/distillation.py
+@@ -8,6 +8,11 @@ from utils.dataset import MultiVideoConcatDataset, MultiTextConcatDataset, multi
+ from utils.config import section_get, wan_default_config
+ from utils.distributed import EMA_FSDP, fsdp_wrap, launch_distributed_job
+ 
++
++def _wb_helpers():
++    from trainer.diffusion import _wb_helpers as h
++    return h()
++
+ from utils.misc import (
+     set_seed,
+     merge_dict_list
+@@ -102,8 +107,8 @@ class Trainer:
+             wandb.init(
+                 config=OmegaConf.to_container(config, resolve=True),
+                 name=_name,
+-                id=os.environ.get("WANDB_RUN_ID") or _name,
+-                mode=os.environ.get("WANDB_MODE") or ("online" if (os.environ.get("WANDB_API_KEY") or getattr(config, "wandb_key", None)) else "offline"),
++                id=(_wb_helpers().wandb_run_id(str(config.logdir)) if _wb_helpers() else (os.environ.get("WANDB_RUN_ID") or _name)),
++                mode=(_wb_helpers().wandb_mode() if _wb_helpers() else (os.environ.get("WANDB_MODE") or ("online" if (os.environ.get("WANDB_API_KEY") or getattr(config, "wandb_key", None)) else "offline"))),
+                 entity=os.environ.get("WANDB_ENTITY") or getattr(config, "wandb_entity", None),
+                 project=os.environ.get("WANDB_PROJECT") or getattr(config, "wandb_project", None) or "thermal_v2v",
+                 dir=getattr(config, "wandb_save_dir", None) or str(config.logdir),
+@@ -246,6 +251,11 @@ class Trainer:
+                     print(f"Loading base model from {generator_checkpoint_path} (before applying LoRA)")
+                 generator_checkpoint = torch.load(generator_checkpoint_path, map_location="cpu")
+                 
++                # thermal-v2v: a full AR checkpoint has both raw and EMA weights; evals apply the LoRA to the EMA ones
++                # (eval_ar.sh --use_ema), so the student must be trained on the EMA weights as well
++                if (getattr(config, "interleave_cond", False) and isinstance(generator_checkpoint, dict)
++                        and "generator_ema" in generator_checkpoint and "generator" in generator_checkpoint):
++                    generator_checkpoint = {"generator_ema": generator_checkpoint["generator_ema"]}
+                 # Load generator (directly; no key alignment needed since LoRA not applied yet)
+                 if isinstance(generator_checkpoint, dict) and "generator" in generator_checkpoint:
+                     if self.is_main_process:
+-- 
+2.52.0
+
+
+From a6446c8256a07e5e0739564be5406f194eb2d442 Mon Sep 17 00:00:00 2001
+From: Yan Keyu <yky@hopper-l-02.cm.cluster>
+Date: Sat, 17 Oct 2026 09:09:35 +0800
+Subject: [PATCH 50/50] S8b config header: recommended default of train_long.sh
+
+---
+ LongLive2.0/configs/thermal/stage3_long_gtreg.yaml | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml b/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
+index 7ee4cc7..4781a4d 100644
+--- a/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
++++ b/LongLive2.0/configs/thermal/stage3_long_gtreg.yaml
+@@ -1,6 +1,7 @@
+-# thermal-v2v S8b -> model ⑥b: stage3_long.yaml (S8a) + a ground-truth regression term (gt_regression_weight): the student's
++# thermal-v2v S8b -> model ⑥ (recommended variant): stage3_long.yaml (S8a) + a ground-truth regression term (gt_regression_weight): the student's
+ # thermal latents on the scored slice are also pulled toward the real thermal (paired data), to anchor the tone (plain
+-# DMD students ran ~5% more near-white pixels than real). Same launcher: STAGE3_CONFIG=configs/thermal/stage3_long_gtreg.yaml.
++# DMD students ran ~5% more near-white pixels than real). Recommended: the default of scripts/stage3/train_long.sh
++# (plain S8a: STAGE3_CONFIG=configs/thermal/stage3_long.yaml).
+ # thermal-v2v S8 -> model ⑥: long-rollout tuning of the S7 LoRA (LongLive "streaming long tuning", base frozen).
+ # The student self-rolls 84..162 interleaved frames (up to 81 RGB/thermal pairs) with a rolling 21-pair KV window and a
+ # 1-pair frame sink; the bidirectional teacher / critic score only the LAST 21 pairs, so the student learns to stay
 -- 
 2.52.0
 

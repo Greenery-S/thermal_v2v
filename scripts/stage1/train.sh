@@ -1,12 +1,13 @@
 #!/bin/bash
 # Stage 1: bidirectional RGB <-> thermal teacher (configs/stage1/bidir_33f.yaml), torchrun on 1..N nodes.
 #   source scripts/env.sh && bash scripts/stage1/train.sh [key=value overrides...]
-# Multi-node: set NNODES, NODE_RANK, MASTER_ADDR, MASTER_PORT on every node (slurm / k8s provide them).
+# Multi-node: set NNODES, NODE_RANK, MASTER_ADDR, MASTER_PORT on every node (e.g. from SLURM_NNODES / SLURM_NODEID / the
+# first host of SLURM_JOB_NODELIST under Slurm; k8s PyTorchJob sets them).
 # Resumes automatically from $THERMAL_RUNS/stage1_bidir_33f/ckpt. Smoke test: see scripts/smoke_test.sh.
 set -euo pipefail
 : "${THERMAL_RUNS:?source scripts/env.sh first}"
 cd "$REPO"
-NPROC=${NPROC:-$(nvidia-smi -L | wc -l)}; NNODES=${NNODES:-1}
+NPROC=${NPROC:-$(_thermal_ngpu)}; NNODES=${NNODES:-1}
 if [ "$NNODES" -gt 1 ]; then
   RDZV=(--nnodes "$NNODES" --node_rank "${NODE_RANK:?}" --master_addr "${MASTER_ADDR:?}" --master_port "${MASTER_PORT:-29500}")
 else

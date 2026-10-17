@@ -70,6 +70,9 @@ if want 3; then
   step "stage 3 / S8: long-rollout tuning, 2 iterations (rollouts up to 162 frames)"
   RUN=stage3_long CFG=configs/thermal/stage3_long_smoke.yaml bash "$REPO/scripts/stage3/_launch.sh"
   need "$SM/stage3_long/eval" "S8 in-training eval"
+  step "stage 3 / S8b: long-rollout tuning + GT regression, 2 iterations"
+  RUN=stage3_long_gtreg CFG=configs/thermal/stage3_long_gtreg_smoke.yaml bash "$REPO/scripts/stage3/_launch.sh"
+  need "$SM/stage3_long_gtreg/eval" "S8b in-training eval"
 fi
 
 step "SMOKE TEST PASSED ($STEPS)"; echo "outputs: $SM"

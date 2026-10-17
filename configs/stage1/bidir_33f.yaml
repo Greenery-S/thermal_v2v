@@ -66,5 +66,5 @@ training:
   eval_steps: 30
   eval_cfg: 2.0
   save_every: 250
-  keep_ckpts: 4
+  keep_ckpts: 12          # every 250 steps up to 3000: all kept, so the step can be picked from the evals (LoRA ckpts are small)
   resume: true

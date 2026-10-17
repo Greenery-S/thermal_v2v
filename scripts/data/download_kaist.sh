@@ -11,7 +11,7 @@ URL="https://drive.usercontent.google.com/download?id=${ID}&export=download&conf
 SIZE=38999029760
 for i in $(seq 1 50); do
   [ -f kaist-cvpr15.tar ] && [ "$(stat -c %s kaist-cvpr15.tar)" = "$SIZE" ] && break
-  curl -L -C - --retry 5 --retry-delay 30 -o kaist-cvpr15.tar "$URL" || { echo "[retry $i] (Drive quota / network), sleeping"; sleep 120; }
+  curl -fL -C - --retry 5 --retry-delay 30 -o kaist-cvpr15.tar "$URL" || { echo "[retry $i] (Drive quota / network), sleeping"; sleep 120; }
 done
 [ "$(stat -c %s kaist-cvpr15.tar)" = "$SIZE" ] || { echo "download incomplete"; exit 1; }
 echo "$MD5  kaist-cvpr15.tar" | md5sum -c -

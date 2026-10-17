@@ -26,7 +26,9 @@ def main():
     if a.sequences_file:
         seqs = [l.split("#")[0].strip() for l in open(a.sequences_file)]
         seqs = [x for x in seqs if x]
-        pats += [f"{q}/target_timestamps.txt" for q in seqs] + [f"{q}/{m}.zip" for q in seqs for m in a.modalities]
+        # skip zips already extracted (stamp file): with --delete_zips a re-run would otherwise download them again
+        done = lambda q, m: os.path.exists(os.path.join(a.out, q, f"{m}.zip.extracted"))
+        pats += [f"{q}/target_timestamps.txt" for q in seqs] + [f"{q}/{m}.zip" for q in seqs for m in a.modalities if not done(q, m)]
     else:
         pats += [f"*/*/{m}.zip" for m in a.modalities]
     for attempt in range(20):

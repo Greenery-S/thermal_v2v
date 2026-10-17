@@ -11,7 +11,7 @@ URLS=("https://huggingface.co/datasets/jsonhash/LLVIP/resolve/main/LLVIP.zip"
       "https://drive.usercontent.google.com/download?id=1VTlT3Y7e1h-Zsne4zahjx5q0TK2ClMVv&export=download&confirm=t")
 for i in $(seq 1 20); do
   [ -f LLVIP.zip ] && [ "$(stat -c %s LLVIP.zip)" = "$SIZE" ] && break
-  curl -L -C - --retry 5 --retry-delay 30 -o LLVIP.zip "${URLS[$(( i % 2 == 1 ? 0 : 1 ))]}" || sleep 60
+  curl -fL -C - --retry 5 --retry-delay 30 -o LLVIP.zip "${URLS[$(( i % 2 == 1 ? 0 : 1 ))]}" || sleep 60
 done
 [ "$(stat -c %s LLVIP.zip)" = "$SIZE" ] || { echo "download incomplete"; exit 1; }
 unzip -q -o LLVIP.zip && rm -f LLVIP.zip && echo "extracted to $OUT/LLVIP"

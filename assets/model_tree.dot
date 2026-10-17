@@ -10,7 +10,7 @@ digraph G {
   FS  [label="③ bidirectional 3-step  RGB → thermal\nS5  stage 1b (FastVideo DMD):\nscripts/stage1b/merge_teacher.py → latents_to_parquet.py\n→ train_dmd.sh → eval.sh", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
   AR  [label="④ streaming AR multi-step  RGB → thermal\nS6  stage 2 (LongLive teacher forcing):\nscripts/stage2/export_teacher.py → train_ar.sh → eval_ar.sh", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
   SF  [label="⑤ streaming AR 4-step  RGB → thermal\nS7  self-forcing DMD (fresh LoRA on ④):\nscripts/stage3/train_dmd.sh → eval.sh\n(recipe validated on a 1-GPU prototype)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
-  LR  [label="⑥ streaming AR 4-step  RGB → thermal, long video\nS8  long-rollout tuning of the S7 LoRA:\nstudent rolls out far past the window, teacher scores the last window\nscripts/stage3/train_long.sh → eval.sh … long\n(prototype: 4-min stream pearson 0.72 → 0.90)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
+  LR  [label="⑥ streaming AR 4-step  RGB → thermal, long video\nS8  long-rollout tuning of the S7 LoRA:\nstudent rolls out far past the window, teacher scores the last window\nscripts/stage3/train_long.sh → eval.sh … long\ndefault S8b: + GT regression (keeps the tone; S8a = plain DMD)\n(prototype: 4-min stream pearson 0.72 → 0.90)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
   S0 -> D [style=dotted]; D -> B; B -> T2R; B -> R2T; R2T -> FS; R2T -> AR;
   AR -> SF; SF -> LR;
 }

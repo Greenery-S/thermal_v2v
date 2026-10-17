@@ -5,7 +5,7 @@ Single-direction (rgb2thermal) or bidirectional (UniVidX-style stochastic condit
 `full` (bf16 weights + fp32 master + 8-bit AdamW, UnityVideo recipe). Reads pre-encoded latents from
 src/precompute_latents.py. Launch with torchrun:
 
-  torchrun --standalone --nproc_per_node=1 src/train_icl.py --config configs/train/rgb2thermal_lora_debug.yaml \
+  torchrun --standalone --nproc_per_node=1 src/train_icl.py --config configs/stage1/bidir_33f.yaml \
       output_dir=$THERMAL_RUNS/exp1  [key=value overrides]
 """
 
