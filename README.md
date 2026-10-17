@@ -44,6 +44,9 @@ Prototype (1×H200, TartanRGBT, single-direction teacher):
   - near-white pixels in excess of real 4.4% → 2.2%;
   - std ratio 1.17 → 1.00;
   - sharpness ratio 1.13 → 0.99.
+- S8a vs S8b at step 400 (raw weights):
+  - short clips: pearson 0.645 → 0.685, near-white excess 1.6% → 0.7%;
+  - 4-min stream: pearson 0.892 → 0.911, gain over constant +6.89 → +7.70 dB.
 
 Deliverables of this hand-off:
 

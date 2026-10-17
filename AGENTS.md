@@ -237,6 +237,9 @@ Prototype reference, step 200:
   - near-white pixel excess 4.4% → 2.2%;
   - std ratio 1.17 → 1.00;
   - sharpness ratio 1.13 → 0.99.
+- S8a vs S8b at step 400 (raw weights):
+  - short clips: pearson 0.645 → 0.685, near-white excess 1.6% → 0.7%;
+  - 4-min stream: pearson 0.892 → 0.911, gain over constant +6.89 → +7.70 dB.
 - Plain DMD drifts whiter and over-sharpened.
 
 If S8b blurs, or its pearson drops below ⑤, lower `gt_regression_weight` to 0.05–0.1.
