@@ -11,7 +11,7 @@ set -euo pipefail
 TEACHER=${TEACHER:-$THERMAL_RUNS/stage1b_teacher/Wan2.2-TI2V-5B-Diffusers}
 DATA=${DATA:-$THERMAL_DATA/fastvideo/rgb2thermal_33f/train}
 OUT=${OUT:-$THERMAL_RUNS/stage1b_dmd3}
-NPROC=${NPROC:-$(_thermal_ngpu)}
+NPROC=${NPROC:-$(bash "$REPO/scripts/_ngpu.sh")}
 mkdir -p "$OUT"
 export FASTVIDEO_ATTENTION_BACKEND=TORCH_SDPA TOKENIZERS_PARALLELISM=false
 # wandb: online with WANDB_API_KEY / login, else offline under $OUT/tracker (wandb sync later)

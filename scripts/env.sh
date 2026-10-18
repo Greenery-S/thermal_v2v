@@ -1,7 +1,8 @@
 #!/bin/bash
 # Environment for every thermal_v2v script. Edit the paths once for your cluster (or export them before sourcing):
 #   source scripts/env.sh
-export REPO=${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}
+# (bash or zsh: $0 is the sourced file in zsh)
+export REPO=${REPO:-$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}
 export WAN22_5B_DIR=${WAN22_5B_DIR:-/path/to/Wan2.2-TI2V-5B-Diffusers}   # HF Wan-AI/Wan2.2-TI2V-5B-Diffusers
 export THERMAL_DATA=${THERMAL_DATA:-/path/to/thermal_v2v_data}            # raw/ (downloads) and latents/ (encoded)
 export THERMAL_RUNS=${THERMAL_RUNS:-/path/to/thermal_v2v_runs}            # checkpoints, logs, evals
@@ -14,16 +15,15 @@ export CONDA_ENV_FASTVIDEO=${CONDA_ENV_FASTVIDEO:-thermal_v2v_fastvideo}   # sta
 # every `source` (so sourcing again after scripts/setup/* picks up the new envs). An env that does not exist yet leaves
 # its variable empty (with a warning) instead of silently falling back to some other python.
 _thermal_py() {  # _thermal_py <VAR> <conda env>
-  local var=$1 env=$2 auto="_THERMAL_AUTO_$1"
-  if [ -n "${!var:-}" ] && [ -z "${!auto:-}" ]; then return; fi      # set by the user: keep
+  local var=$1 env=$2 cur isauto
+  eval "cur=\${$var:-}; isauto=\${_THERMAL_AUTO_$var:-}"      # (no ${!var}: works in zsh too)
+  if [ -n "$cur" ] && [ -z "$isauto" ]; then return; fi             # set by the user: keep
   local p; p=$(conda run -n "$env" which python 2>/dev/null || true)
-  export "$var=$p" "$auto=1"
+  export "$var=$p" "_THERMAL_AUTO_$var=1"
   [ -n "$p" ] || echo "[env.sh] conda env '$env' not found yet -> $var empty (run its setup script, then source env.sh again)" >&2
 }
 _thermal_py PY "$CONDA_ENV_THERMAL"; _thermal_py PY_LL "$CONDA_ENV_LONGLIVE"; _thermal_py PY_FV "$CONDA_ENV_FASTVIDEO"
-# GPUs this process may use (honours CUDA_VISIBLE_DEVICES, e.g. a partial-node allocation); launchers default NPROC to it
-_thermal_ngpu() { if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then echo "$CUDA_VISIBLE_DEVICES" | tr ',' '\n' | grep -c .; else nvidia-smi -L | wc -l; fi; }
-export -f _thermal_ngpu
+# launchers default NPROC to the GPUs this process may use: bash $REPO/scripts/_ngpu.sh (honours CUDA_VISIBLE_DEVICES)
 export FASTVIDEO_DIR=${FASTVIDEO_DIR:-$THERMAL_EXT/FastVideo}
 export LONGLIVE_DIR=${LONGLIVE_DIR:-$THERMAL_EXT/LongLive/LongLive2.0}
 export PYTHONPATH=$REPO:${PYTHONPATH:-} PYTHONUNBUFFERED=1 TOKENIZERS_PARALLELISM=false HDF5_USE_FILE_LOCKING=FALSE

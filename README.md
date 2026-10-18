@@ -23,7 +23,8 @@ runs. All six models are included and smoke-tested end to end. ⑤ and ⑥ use a
 - stages 1 and 1b use all three sources (33-frame clips; LLVIP stills as static clips);
 - stage 2 uses the video sources only (TartanRGBT + KAIST, 81-frame clips).
 
-"Smoke-tested" means the full chain ran on one GPU with a few clips per source. Full-scale runs and their quality
+"Smoke-tested" means the full chain ran with a few clips per source: all parts on one H200, and parts 2 and 3
+also on two. Full-scale runs and their quality
 are not verified yet.
 
 The few-step streaming model continues from ④ in two steps:
@@ -92,7 +93,7 @@ scripts/stage2/setup_longlive.sh     LongLive checkout + patch + conda env + Wan
 scripts/stage2/export_teacher.py     stage-1 checkpoint -> merged, LongLive-format teacher
 scripts/stage2/{train_ar,eval_ar}.sh
 scripts/stage3/{train_dmd,train_long,eval}.sh   S7 / S8 (LongLive DMD trainer)
-scripts/smoke_test.sh                one-GPU end-to-end check (~1 h)
+scripts/smoke_test.sh                per-stage plumbing check (SMOKE_STEPS, NPROC)
 ```
 
 ## 2. Setup (S0)
@@ -279,22 +280,25 @@ All three training stages log the same way:
 | 2 | streaming rgb→thermal, 2 clips, 30 steps | `thermal_eval_minutes`, `thermal_eval_n` in the config |
 | 3 (S7/S8) | streaming rgb→thermal, 2 val clips + the 4-min val stream, 4 steps | same keys in `stage3_*.yaml` |
 
-## 8. Smoke test (S2: do this first on a new cluster)
+## 8. Smoke test (S2: one stage at a time, right before its real run)
 
 ```bash
-bash scripts/smoke_test.sh                 # 1 GPU, a few clips per source, ~30 min on an H200; outputs under $THERMAL_RUNS/smoke
-SMOKE_STEPS="data 1" bash scripts/smoke_test.sh    # or only some parts: data 1 1b 2 3
+SMOKE_STEPS="2" NPROC=2 CUDA_VISIBLE_DEVICES=0,1 bash scripts/smoke_test.sh   # a part: data 1 1b 2 3; outputs under $THERMAL_RUNS/smoke
+bash scripts/smoke_test.sh                 # all parts on 1 GPU: ~30 min, only on a >= 141 GB GPU (H200)
 ```
 
-It runs the whole chain:
-1. encode;
-2. stage 1 for 20 steps;
-3. stage-1 eval in both directions;
-4. stage 1b: merge the teacher, build the parquet, train 10 DMD steps, run the 3-step eval;
-5. export the teacher for stage 2;
-6. stage 2 for 10 iterations (no checkpoint: a full stage-2 checkpoint is ~50 GB);
-7. stage-2 streaming eval;
-8. S7, S8a and S8b for 2 iterations each, with their in-training evals.
+- Smoke each stage right before its real run, on the GPUs it will use. Start the real run as soon as the part passes.
+  `AGENTS.md` §4 maps each part to its stage.
+- Stage 2 trains all 5B parameters: ~80 GB of fp32 weights, gradients and Adam states. That fits one H200 but not one
+  96 GB H20. Use `NPROC` ≥ 2, so that FSDP shards it; the stage-2 smoke peaks at 76 GB per GPU on 2 GPUs.
+
+The parts, in order:
+1. `data`: encode;
+2. `1`: stage 1 for 20 steps, then the stage-1 eval in both directions;
+3. `1b`: merge the teacher, build the parquet, train 10 DMD steps, run the 3-step eval;
+4. `2`: export the teacher for stage 2, run stage 2 for 10 iterations (no checkpoint: a full stage-2 checkpoint is
+   ~50 GB), then the stage-2 streaming eval;
+5. `3`: S7, S8a and S8b for 2 iterations each, with their in-training evals.
 
 It only checks the plumbing, not the quality. It fails unless every training stage has written its in-training eval
 mp4 and its `eval_log.jsonl`.
@@ -315,8 +319,8 @@ mp4 and its `eval_log.jsonl`.
   These are fixed in the patch. Do not use an unpatched LongLive.
 - **torch.compile / triton caches** must be on a filesystem that allows exec (`TORCHINDUCTOR_CACHE_DIR`,
   `TRITON_CACHE_DIR` in `env.sh`).
-- **Not exercised by our smoke test** (it ran on one GPU, with the KAIST HF mirror and no long val stream):
-  - DDP / FSDP with more than one rank;
+- **Not exercised by our smoke test** (one or two GPUs, the KAIST HF mirror, no long val stream):
+  - DDP / FSDP across nodes, and stages 1 / 1b with more than one rank;
   - the official KAIST layout (`kaist-cvpr15/images`);
   - the 4-min long-stream eval inside S7/S8 (a 2389-frame decode on rank 0);
   - the S7 → S8 hand-off via `STAGE3_LORA`.

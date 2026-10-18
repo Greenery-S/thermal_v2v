@@ -100,20 +100,38 @@ bash scripts/data/download_llvip.sh $THERMAL_DATA/raw/LLVIP
 - KAIST: `$THERMAL_DATA/raw/KAIST/kaist-cvpr15/images/set00..set11`. The md5 is checked by the script.
 - LLVIP: `$THERMAL_DATA/raw/LLVIP/LLVIP/{visible,infrared}/{train,test}`, with 12025 train images.
 
-## 4. S2 · Smoke test (MANDATORY before any real run)
+## 4. S2 · Smoke test: one stage at a time, right before that stage's real run
+
+`scripts/smoke_test.sh` runs a stage for a few steps on a few clips. It tests the plumbing only; its numbers are
+meaningless. **Do not smoke the whole chain up front.** Before each real stage, smoke just that stage on the GPUs you
+will train on. As soon as it passes, start the real run of that stage. Then do the same for the next stage.
+
+| Before | Smoke part (`SMOKE_STEPS=`) | It must print | Then start |
+|---|---|---|---|
+| S3 encode | `data` | `SMOKE TEST PASSED ( data )` | S3 |
+| S4 stage 1 | `1` | `ok: stage-1 in-training eval` | S4 |
+| S5 stage 1b | `1b` | `ok: stage-1b in-training eval` | S5 |
+| S6 stage 2 | `2` | `ok: stage-2 in-training eval` | S6 |
+| S7 / S8 | `3` | `ok: S7 / S8 / S8b in-training eval` | S7, then S8 |
+
+The parts reuse the outputs of the earlier parts under `$THERMAL_RUNS/smoke`. For example, part 2 exports part 1's
+checkpoint. So run them in this order. Each part takes minutes.
 
 ```bash
-bash scripts/smoke_test.sh       # 1 GPU, ~30 min on an H200, outputs in $THERMAL_RUNS/smoke
+NPROC=4 CUDA_VISIBLE_DEVICES=0,1,2,3 SMOKE_STEPS="2" bash scripts/smoke_test.sh   # e.g. right before S6
 ```
 
-It must end with `=== … SMOKE TEST PASSED`. On the way it prints six `ok: … in-training eval` lines, one each for
-stages 1, 1b, 2, S7, S8a and S8b. Each part can be re-run alone, e.g. `SMOKE_STEPS="1b 2"`. The numbers in the smoke outputs are
-meaningless (20 training steps). Only the plumbing is being tested.
+**Use several GPUs.** The real runs use 16–32 GPUs. The smoke defaults to 1 GPU only because it was written on a
+141 GB H200. `NPROC` sets the number of processes, and FSDP shards the models over them.
+- **Stages 1 and 1b fit on one 96 GB H20.** Stage 1 peaks at 21.7 GB.
+- **Stage 2 (S6) does not fit on one H20.** It trains all 5B parameters with AdamW. The fp32 weights, gradients and two
+  Adam states are ~80 GB fixed, and with one rank FSDP cannot shard them, so it OOMs at the first optimizer step.
+- **Two GPUs are enough for stage 2.** Measured on 2×H200 with `NPROC=2`: the stage-2 smoke peaks at 76 GB per GPU
+  (nvidia-smi), under the 96 GB of an H20.
+- **Stage 3 also passed on 2×H200** (S7, S8a and S8b). Its per-GPU memory was not measured.
+- Use 4 GPUs if 2 are tight.
 
-**Report:**
-- whether it passed;
-- the per-step time and peak memory printed by stage 1 (`… s/step mem …G`);
-- any fixes you had to make.
+**Report** for each part: whether it passed, the GPUs used, the per-step time and peak memory, and any fixes.
 
 ## 5. S3 · Encode latents (once; GPU, embarrassingly parallel)
 

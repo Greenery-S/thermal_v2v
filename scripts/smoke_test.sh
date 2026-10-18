@@ -12,7 +12,9 @@
 # Everything goes to $THERMAL_RUNS/smoke, so a real run's latents / checkpoints are never touched.
 set -euo pipefail
 : "${THERMAL_DATA:?source scripts/env.sh first}"
-export NGPU=1 NPROC=1
+# 1 GPU by default. Stage 2 trains all 5B parameters with AdamW (~80 GB fixed per GPU on one GPU; FSDP shards it over
+# NPROC GPUs), so on GPUs under ~110 GB run parts 2 and 3 on two: NPROC=2 CUDA_VISIBLE_DEVICES=0,1 SMOKE_STEPS="2 3".
+export NGPU=${NGPU:-1} NPROC=${NPROC:-1}
 STEPS=" ${SMOKE_STEPS:-data 1 1b 2 3} "
 want() { [[ "$STEPS" == *" $1 "* ]]; }
 SM=${SMOKE_DIR:-$THERMAL_RUNS/smoke}; mkdir -p "$SM/data"

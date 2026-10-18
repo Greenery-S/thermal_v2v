@@ -12,7 +12,7 @@ export LLV2_MODEL_DIR=${LLV2_MODEL_DIR:-$THERMAL_RUNS/stage2_teacher}
 export LLV2_PROMPT_EMBEDS=${LLV2_PROMPT_EMBEDS:-$LLV2_MODEL_DIR/prompt_embeds.pt}
 export THERMAL_V2V_REPO=$REPO WANDB_DIR=$LOGDIR   # wandb: online with WANDB_API_KEY / login, else offline in $LOGDIR
 CFG=${STAGE2_CONFIG:-configs/thermal/stage2_ar.yaml}
-NPROC=${NPROC:-$(_thermal_ngpu)}; NNODES=${NNODES:-1}
+NPROC=${NPROC:-$(bash "$REPO/scripts/_ngpu.sh")}; NNODES=${NNODES:-1}
 if [ "$NNODES" -gt 1 ]; then
   RDZV=(--nnodes "$NNODES" --node_rank "${NODE_RANK:?}" --master_addr "${MASTER_ADDR:?}" --master_port "${MASTER_PORT:-29500}")
 else

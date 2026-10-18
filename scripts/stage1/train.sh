@@ -7,7 +7,7 @@
 set -euo pipefail
 : "${THERMAL_RUNS:?source scripts/env.sh first}"
 cd "$REPO"
-NPROC=${NPROC:-$(_thermal_ngpu)}; NNODES=${NNODES:-1}
+NPROC=${NPROC:-$(bash "$REPO/scripts/_ngpu.sh")}; NNODES=${NNODES:-1}
 if [ "$NNODES" -gt 1 ]; then
   RDZV=(--nnodes "$NNODES" --node_rank "${NODE_RANK:?}" --master_addr "${MASTER_ADDR:?}" --master_port "${MASTER_PORT:-29500}")
 else

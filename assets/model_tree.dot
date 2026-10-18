@@ -3,7 +3,7 @@ digraph G {
   node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, margin="0.16,0.08"];
   edge [color="#555555", arrowsize=0.8];
   S0  [label="S0  setup (once)\nscripts/setup/create_envs.sh\nscripts/stage1b/setup_fastvideo.sh\nscripts/stage2/setup_longlive.sh", fillcolor="#eeeeee", color="#777777"];
-  D   [label="Paired RGB / thermal data: TartanRGBT + KAIST + LLVIP\nS1  download: scripts/data/download_{tartanrgbt.py, kaist.sh, llvip.sh}\nS2  smoke test (1 GPU, all stages): scripts/smoke_test.sh\nS3  encode latents: scripts/data/encode_all.sh  (+ check_latents.py)", fillcolor="#e3f2fd", color="#1565c0"];
+  D   [label="Paired RGB / thermal data: TartanRGBT + KAIST + LLVIP\nS1  download: scripts/data/download_{tartanrgbt.py, kaist.sh, llvip.sh}\nS2  smoke test, per stage right before its real run: scripts/smoke_test.sh\nS3  encode latents: scripts/data/encode_all.sh  (+ check_latents.py)", fillcolor="#e3f2fd", color="#1565c0"];
   B   [label="S4  stage 1: ONE training run → one LoRA checkpoint serving ① and ②\nbidirectional teacher, multi-step, 33 frames\nscripts/stage1/train.sh   (config: configs/stage1/bidir_33f.yaml)", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
   T2R [label="① bidirectional multi-step  thermal → RGB\n= the S4 checkpoint (no extra training)\neval: scripts/stage1/eval.sh <ckpt> thermal2rgb", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];
   R2T [label="② bidirectional multi-step  RGB → thermal\n= the same S4 checkpoint (no extra training)\neval: scripts/stage1/eval.sh <ckpt> rgb2thermal", fillcolor="#d4f4dd", color="#2e7d32", penwidth=2];

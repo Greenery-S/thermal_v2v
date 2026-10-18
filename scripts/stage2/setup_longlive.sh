@@ -27,7 +27,9 @@ fi
 
 # original-format Wan2.2-TI2V-5B pieces (VAE, tokenizer, config); the DiT weights come from the exported teacher
 W=$LL/wan_models/Wan2.2-TI2V-5B; mkdir -p "$W"
-conda run -n "$CONDA_ENV_LONGLIVE" python - "$W" <<'PY'
+# `conda run` does not forward stdin (a heredoc would silently not run): call the env's python directly
+PYLL=${PY_LL:-$(conda run -n "$CONDA_ENV_LONGLIVE" which python | tail -1)}
+"$PYLL" - "$W" <<'PY'
 import sys
 from huggingface_hub import hf_hub_download, snapshot_download
 w = sys.argv[1]
@@ -36,4 +38,7 @@ hf_hub_download("Wan-AI/Wan2.2-TI2V-5B", "config.json", local_dir=w)
 snapshot_download("Wan-AI/Wan2.2-TI2V-5B", allow_patterns=["google/umt5-xxl/*"], local_dir=w)
 print("wan_models ready:", w)
 PY
+for f in Wan2.2_VAE.pth config.json google/umt5-xxl; do
+  [ -e "$W/$f" ] || { echo "[setup_longlive] missing $W/$f" >&2; exit 1; }
+done
 echo "LongLive ready at $LL"

@@ -7,7 +7,7 @@ export LLV2_MODEL_DIR=${LLV2_MODEL_DIR:-$THERMAL_RUNS/stage2_teacher}           
 export LLV2_PROMPT_EMBEDS=${LLV2_PROMPT_EMBEDS:-$LLV2_MODEL_DIR/prompt_embeds.pt}
 export THERMAL_V2V_REPO=$REPO WANDB_DIR=$LOGDIR
 export THERMAL_LONG_VAL=${THERMAL_LONG_VAL:-$( (ls "$THERMAL_DATA"/latents/tartanrgbt_long/val/*.safetensors 2>/dev/null || true) | head -1)}
-NPROC=${NPROC:-$(_thermal_ngpu)}; NNODES=${NNODES:-1}
+NPROC=${NPROC:-$(bash "$REPO/scripts/_ngpu.sh")}; NNODES=${NNODES:-1}
 if [ "$NNODES" -gt 1 ]; then
   RDZV=(--nnodes "$NNODES" --node_rank "${NODE_RANK:?}" --master_addr "${MASTER_ADDR:?}" --master_port "${MASTER_PORT:-29500}")
 else
